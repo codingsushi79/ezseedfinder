@@ -1,0 +1,18 @@
+# EZ Seed Finder criteria — mushroom island + nearby structures
+version 1.21
+threads 4
+max_results 3
+
+spawn biome mushroom_fields | mushroomIsland
+
+dimension overworld {
+  structure monument within 800 of spawn viable
+  structure shipwreck within 300 of spawn viable
+  biome at spawn mushroom_fields | mushroomIsland
+}
+
+dimension nether {
+  structure fortress within 500 of 0,0 viable
+}
+
+stronghold nearest within 2000 of spawn

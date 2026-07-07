@@ -1,0 +1,20 @@
+# 1.16.1 speedrun seed — village, portal, stronghold, nether
+version 1.16.1
+max_results 5
+threads 8
+
+spawn within 1500 of origin
+
+dimension overworld {
+  structure village within 400 of spawn viable
+  ruined_portal within 250 of spawn viable
+}
+
+stronghold nearest within 1200 of spawn
+
+distance village ruined_portal <= 200 in overworld
+
+dimension nether {
+  bastion variant treasure within 800 of 0,0 viable
+  structure fortress within 600 of 0,0 viable
+}

@@ -1,0 +1,26 @@
+# Advanced criteria — biomes, terrain, mobs, dimensions
+version 1.20
+threads 4
+max_results 2
+
+dimension overworld {
+  biome region -512, -512 to 512, 512 y 64 contains desert >= 15%
+  terrain at 0, 0 flat radius 128
+  structure ancient_city within 3000 of origin viable
+  structure trail_ruin within 2000 of spawn viable
+}
+
+dimension nether {
+  structure bastion within 400 of 0,0 viable
+  biome at 0, 64, 0 crimson_forest | warped_forest | nether_wastes
+}
+
+dimension end {
+  structure end_city within 1500 of 0,0 viable
+}
+
+mob witch within 200 of spawn in overworld biome swamp
+mob blaze within 300 of 0,0 in nether
+
+stronghold count 128
+stronghold nearest within 2500 of spawn

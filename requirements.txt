@@ -1,0 +1,4 @@
+cubiomespi-fork>=1.1.1
+
+# Install package in editable mode for development:
+# pip install -e .
