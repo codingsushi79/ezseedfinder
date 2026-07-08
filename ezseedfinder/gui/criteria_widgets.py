@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import ttk
 from typing import Any
 
@@ -39,20 +38,15 @@ _UI_FONT = ("Segoe UI", 10)
 
 
 def apply_ui_fonts(root: tk.Misc) -> None:
-    """Use one font family across ttk and tk widgets."""
-    style = ttk.Style(root)
-    for name in ("TLabel", "TCheckbutton", "TRadiobutton", "TButton", "TEntry", "TCombobox"):
-        style.configure(name, font=_UI_FONT)
-    try:
-        default = tkfont.nametofont("TkDefaultFont")
-        default.configure(family="Segoe UI", size=10)
-        text_font = tkfont.nametofont("TkTextFont")
-        text_font.configure(family="Segoe UI", size=10)
-    except tk.TclError:
-        pass
+    """Legacy hook — fonts are configured by apply_dark_theme."""
+    from .theme import apply_dark_theme
+
+    apply_dark_theme(root)
 
 
 def scrollable_tab(parent: ttk.Frame) -> ttk.Frame:
+    from .theme import style_canvas
+
     canvas = tk.Canvas(parent, highlightthickness=0)
     scroll = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
     inner = ttk.Frame(canvas)
@@ -64,6 +58,7 @@ def scrollable_tab(parent: ttk.Frame) -> ttk.Frame:
 
     canvas.bind("<Configure>", _on_canvas_configure)
     canvas.configure(yscrollcommand=scroll.set)
+    style_canvas(canvas)
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -185,7 +180,7 @@ def labeled_entry(
     width: int = 12,
 ) -> tk.StringVar:
     row = ttk.Frame(parent)
-    row.pack(fill=tk.X, pady=2)
+    row.pack(fill=tk.X, pady=3)
     ttk.Label(row, text=label, width=22).pack(side=tk.LEFT)
     var = tk.StringVar(value=default)
     ttk.Entry(row, textvariable=var, width=width).pack(side=tk.RIGHT)
@@ -200,7 +195,7 @@ def labeled_combo(
     width: int = 14,
 ) -> tk.StringVar:
     row = ttk.Frame(parent)
-    row.pack(fill=tk.X, pady=2)
+    row.pack(fill=tk.X, pady=3)
     ttk.Label(row, text=label, width=22).pack(side=tk.LEFT)
     var = tk.StringVar(value=default)
     ttk.Combobox(row, textvariable=var, values=values, width=width, state="readonly").pack(
@@ -255,7 +250,7 @@ def chest_item_row(
     item_values: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     row = ttk.Frame(parent)
-    row.pack(fill=tk.X, pady=2)
+    row.pack(fill=tk.X, pady=3)
     item_var = tk.StringVar(value="obsidian")
     count_var = tk.StringVar(value="1")
     values = item_values or DEFAULT_LOOT_ITEMS

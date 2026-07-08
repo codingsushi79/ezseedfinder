@@ -24,7 +24,6 @@ from .criteria_widgets import (
     MOB_TYPES,
     PORTAL_TEMPLATES,
     TERRAIN_TYPES,
-    apply_ui_fonts,
     chest_item_row,
     dist_row,
     labeled_combo,
@@ -35,6 +34,7 @@ from .criteria_widgets import (
     structure_checkbox,
     toggle_block,
 )
+from .theme import apply_dark_theme, style_text_widget
 from .export_results import write_results
 from .ezsf_builder import build_ezsf
 from .ezsf_importer import FEATURE_KEYS, apply_criteria_to_gui, parse_ezsf_to_criteria
@@ -121,14 +121,11 @@ class SeedFinderApp(tk.Tk):
         self._fit_window_to_content()
 
     def _apply_style(self) -> None:
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        apply_ui_fonts(self)
-        style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"))
-        style.configure("Status.TLabel", font=("Consolas", 10))
+        apply_dark_theme(self)
+        style_text_widget(self.ezsf_text)
+        style_text_widget(self.result_detail_text)
+        self.start_btn.configure(style="Primary.TButton")
+        self.stop_btn.configure(style="Danger.TButton")
 
     def _fit_window_to_content(self) -> None:
         self.update_idletasks()
@@ -142,7 +139,7 @@ class SeedFinderApp(tk.Tk):
 
     def _build_ui(self) -> None:
         main = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
 
         left = ttk.Frame(main, width=500)
         right = ttk.Frame(main)
@@ -154,15 +151,15 @@ class SeedFinderApp(tk.Tk):
         self._build_status_bar()
 
     def _build_left_panel(self, parent: ttk.Frame) -> None:
-        vf = ttk.LabelFrame(parent, text="Minecraft Version", padding=8)
-        vf.pack(fill=tk.X, pady=(0, 4))
+        vf = ttk.LabelFrame(parent, text="Minecraft Version", padding=(10, 8))
+        vf.pack(fill=tk.X, pady=(0, 6))
         self.version_var = tk.StringVar(value=DEFAULT_VERSION)
         ttk.Combobox(vf, textvariable=self.version_var, values=VERSIONS, state="readonly").pack(
             fill=tk.X
         )
 
-        ff = ttk.LabelFrame(parent, text="Features (show tabs)", padding=6)
-        ff.pack(fill=tk.X, pady=(0, 4))
+        ff = ttk.LabelFrame(parent, text="Features", padding=(10, 8))
+        ff.pack(fill=tk.X, pady=(0, 6))
         row1 = ttk.Frame(ff)
         row1.pack(fill=tk.X)
         row2 = ttk.Frame(ff)
@@ -354,12 +351,12 @@ class SeedFinderApp(tk.Tk):
                 ttk.Label(
                     tab,
                     text="portal_6 = 5×5 frame, 1 missing at top center",
-                    font=("Segoe UI", 8),
+                    style="Muted.TLabel",
                 ).pack(anchor=tk.W)
                 ttk.Label(tab, text="Chest loot requirements", style="Header.TLabel").pack(
                     anchor=tk.W, pady=(8, 2)
                 )
-                loot_label = ttk.Label(tab, text="", font=("Segoe UI", 8))
+                loot_label = ttk.Label(tab, text="", style="Muted.TLabel")
                 loot_label.pack(anchor=tk.W)
                 cfg["loot_table_label"] = loot_label
                 cfg["chest_frame"] = ttk.Frame(tab)
@@ -527,7 +524,7 @@ class SeedFinderApp(tk.Tk):
             body,
             text="Stronghold rules: ring/angle are exact from cubiomes; "
             "'under spawn' and 'full' are heuristics (see README).",
-            font=("Segoe UI", 8),
+            style="Muted.TLabel",
             wraplength=480,
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -563,8 +560,7 @@ class SeedFinderApp(tk.Tk):
         ttk.Label(
             body,
             text="Uses biome sampling as a terrain proxy — not true height/noise.",
-            font=("Segoe UI", 8),
-            foreground="#666",
+            style="Muted.TLabel",
         ).pack(anchor=tk.W, pady=(0, 4))
         self.terrain_dim = labeled_combo(body, "Dimension", DIMENSIONS, "overworld")
         self.terrain_x = labeled_entry(body, "X", "0")
@@ -578,8 +574,7 @@ class SeedFinderApp(tk.Tk):
         ttk.Label(
             body,
             text="Overworld/nether height is approximated (Y=64); end uses cubiomes surface.",
-            font=("Segoe UI", 8),
-            foreground="#666",
+            style="Muted.TLabel",
         ).pack(anchor=tk.W, pady=(0, 4))
         self.height_dim = labeled_combo(body, "Dimension", DIMENSIONS, "overworld")
         self.height_x = labeled_entry(body, "X", "0")
@@ -674,7 +669,7 @@ class SeedFinderApp(tk.Tk):
         ttk.Button(toolbar, text="Load preset", command=self._load_preset).pack(side=tk.LEFT)
 
         self.ezsf_text = scrolledtext.ScrolledText(
-            ef, wrap=tk.NONE, font=("Consolas", 10), height=14, undo=True
+            ef, wrap=tk.NONE, height=14, undo=True
         )
         self.ezsf_text.pack(fill=tk.BOTH, expand=True)
 
@@ -710,17 +705,19 @@ class SeedFinderApp(tk.Tk):
 
         detail_frame = ttk.LabelFrame(rsplit, text="Result details", padding=4)
         self.result_detail_text = scrolledtext.ScrolledText(
-            detail_frame, wrap=tk.WORD, font=("Consolas", 9), height=8, state=tk.DISABLED
+            detail_frame, wrap=tk.WORD, height=8, state=tk.DISABLED
         )
         self.result_detail_text.pack(fill=tk.BOTH, expand=True)
         rsplit.add(detail_frame, weight=1)
 
         self.results_tree.bind("<<TreeviewSelect>>", self._on_result_select)
         self.results_tree.bind("<Double-1>", self._copy_seed)
-        ttk.Label(rf, text="Select a row for details; double-click to copy seed").pack(anchor=tk.W)
+        ttk.Label(rf, text="Select a row for details; double-click to copy seed", style="Muted.TLabel").pack(
+            anchor=tk.W, pady=(4, 0)
+        )
 
     def _build_status_bar(self) -> None:
-        bar = ttk.Frame(self, padding=(8, 4))
+        bar = ttk.Frame(self, padding=(12, 6), style="StatusBar.TFrame")
         bar.pack(fill=tk.X, side=tk.BOTTOM)
         self.status_var = tk.StringVar(value="Ready")
         ttk.Label(bar, textvariable=self.status_var, style="Status.TLabel").pack(side=tk.LEFT)
