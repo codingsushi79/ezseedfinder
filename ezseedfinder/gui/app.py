@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+import queue
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
 
 from ezseedfinder import __version__
 from ezseedfinder.paths import examples_dir
+from ezseedfinder.update_checker import RELEASE_URL, check_for_update_async
 
 from ..engine.finder import SeedFinder, load_ezsf_file
 from ..engine.checker import SeedChecker
@@ -114,11 +117,13 @@ class SeedFinderApp(tk.Tk):
         self._feature_vars: dict[str, tk.BooleanVar] = {
             key: tk.BooleanVar(value=False) for key in FEATURE_KEYS
         }
+        self._update_queue: queue.Queue[str | None] = queue.Queue()
 
         self._build_ui()
         self._wire_ezsf_sync()
         self._apply_style()
         self._fit_window_to_content()
+        self.after(1500, self._start_update_check)
 
     def _apply_style(self) -> None:
         style = ttk.Style()
@@ -129,6 +134,9 @@ class SeedFinderApp(tk.Tk):
         apply_ui_fonts(self)
         style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"))
         style.configure("Status.TLabel", font=("Consolas", 10))
+        style.configure(
+            "Update.TLabel", font=("Segoe UI", 10, "bold"), foreground="#1a7f37"
+        )
 
     def _fit_window_to_content(self) -> None:
         self.update_idletasks()
@@ -726,6 +734,36 @@ class SeedFinderApp(tk.Tk):
         ttk.Label(bar, textvariable=self.status_var, style="Status.TLabel").pack(side=tk.LEFT)
         self.progress = ttk.Progressbar(bar, mode="indeterminate", length=200)
         self.progress.pack(side=tk.RIGHT)
+
+        self.update_var = tk.StringVar(value="")
+        self.update_label = ttk.Label(
+            bar, textvariable=self.update_var, style="Update.TLabel", cursor="hand2"
+        )
+        self.update_label.bind("<Button-1>", lambda _e: self._open_update_url())
+
+    def _start_update_check(self) -> None:
+        check_for_update_async(__version__, self._update_queue.put)
+        self.after(300, self._poll_update_result)
+
+    def _poll_update_result(self) -> None:
+        try:
+            latest = self._update_queue.get_nowait()
+        except queue.Empty:
+            self.after(300, self._poll_update_result)
+            return
+        if latest:
+            self._show_update_available(latest)
+
+    def _show_update_available(self, latest: str) -> None:
+        self._latest_version = latest
+        self.update_var.set(f"\u2b06 Update available: v{latest} (click to open)")
+        self.update_label.pack(side=tk.RIGHT, padx=(0, 16))
+
+    def _open_update_url(self) -> None:
+        try:
+            webbrowser.open(RELEASE_URL)
+        except Exception:
+            pass
 
     def _toggle_dist_field(self, key: str) -> None:
         entry = self.dist_entries.get(key)
