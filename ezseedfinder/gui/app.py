@@ -770,7 +770,11 @@ class SeedFinderApp(tk.Tk):
         self._refresh_loot_ui()
 
     def _ezsf_editor_focused(self) -> bool:
-        focus = self.focus_get()
+        try:
+            focus = self.focus_get()
+        except (KeyError, tk.TclError):
+            # ttk.Combobox popdown focus isn't a normal widget path on some platforms
+            return False
         widget: tk.Misc | None = focus
         while widget is not None:
             if widget == self.ezsf_text:
