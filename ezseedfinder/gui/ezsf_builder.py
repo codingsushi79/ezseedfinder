@@ -115,7 +115,8 @@ def build_ezsf(criteria: dict[str, Any], version: str = "26.2") -> str:
         ref = _ref_line(portal.get("ref", "spawn"), portal.get("ref_pos"))
         dim = portal.get("dimension", "overworld")
         parts = [f"ruined_portal within {dist} of {ref}"]
-        if portal.get("viable", True):
+        viable = portal.get("viable", True)
+        if viable:
             parts.append("viable")
         giant = _bool_token(portal.get("giant"))
         if giant:
@@ -129,12 +130,15 @@ def build_ezsf(criteria: dict[str, Any], version: str = "26.2") -> str:
         template = _int_or_none(portal.get("template"))
         if template is not None:
             parts += ["template", str(template)]
-        top_missing = _int_or_none(portal.get("top_missing"))
-        if top_missing is not None:
-            parts += ["top_missing", str(top_missing)]
-        frame_missing = _int_or_none(portal.get("frame_missing"))
-        if frame_missing is not None:
-            parts += ["frame_missing", str(frame_missing)]
+        # Frame-damage constraints are mutually exclusive with "viable" (a viable
+        # portal has a complete, undamaged frame), so only emit them otherwise.
+        if not viable:
+            top_missing = _int_or_none(portal.get("top_missing"))
+            if top_missing is not None:
+                parts += ["top_missing", str(top_missing)]
+            frame_missing = _int_or_none(portal.get("frame_missing"))
+            if frame_missing is not None:
+                parts += ["frame_missing", str(frame_missing)]
         for item, count in portal.get("chest_items") or []:
             item = str(item).strip()
             count = _int_or_none(count) or 1

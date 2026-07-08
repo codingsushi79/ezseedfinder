@@ -224,19 +224,32 @@ def _roll_uniform(rng: JavaRandom, lo: float, hi: float) -> int:
 def roll_loot_pool(rng: JavaRandom, pool: LootPool) -> LootResult:
     result = LootResult()
     rolls = _roll_uniform(rng, pool.min_rolls, pool.max_rolls)
-    total_weight = sum(e.weight for e in pool.entries)
-    if total_weight <= 0:
+    entries = [e for e in pool.entries if e.weight > 0]
+    if not entries:
         return result
+    total_weight = sum(e.weight for e in entries)
+    # Minecraft selects the entry only when there is a choice to make: a pool
+    # with a single valid entry is taken automatically WITHOUT consuming a
+    # random number. Calling next_int() here anyway desynchronises every
+    # subsequent pool's RNG (this is why e.g. buried treasure loot was off).
+    single = entries[0] if len(entries) == 1 else None
     for _ in range(rolls):
-        roll = rng.next_int(total_weight)
-        acc = 0
-        for entry in pool.entries:
-            acc += entry.weight
-            if roll < acc:
-                if entry.item != "empty":
-                    count = _roll_uniform(rng, entry.min_count, entry.max_count)
-                    result.items[entry.item] = result.items.get(entry.item, 0) + count
-                break
+        if single is not None:
+            entry: LootEntry | None = single
+        else:
+            roll = rng.next_int(total_weight)
+            acc = 0
+            entry = None
+            for candidate in entries:
+                acc += candidate.weight
+                if roll < acc:
+                    entry = candidate
+                    break
+            if entry is None:
+                continue
+        if entry.item != "empty":
+            count = _roll_uniform(rng, entry.min_count, entry.max_count)
+            result.items[entry.item] = result.items.get(entry.item, 0) + count
     return result
 
 

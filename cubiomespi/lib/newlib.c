@@ -133,37 +133,90 @@ CUBIOMES_EXPORT int** INTERFACE_find_in_range(int structure, int mcVersion, uint
 }
 
 
+// Find the nearest viable structure to a block-coordinate center (cx, cz),
+// where `limit` is the maximum search radius in BLOCKS.
+//
+// The previous implementation mixed block coordinates (center) with region
+// indices, which made any non-origin search return garbage or nothing. This
+// version converts the center to region coordinates using the version-specific
+// region size, walks region rings outward, and keeps the closest viable hit by
+// true block distance. It fails fast: once no unexplored region ring can
+// possibly hold a structure within `limit` (or closer than the best hit so
+// far), the search stops.
 CUBIOMES_EXPORT int* INTERFACE_find_closest_structure(int structure, int mcVersion, uint64_t seed, int dimension, int cx, int cz, int limit){
-    Generator g;
-    int d;
     int* posArray = (int*)malloc(2 * sizeof(int));
-    
+    posArray[0] = 0;
+    posArray[1] = 0;
+
+    StructureConfig sconf;
+    if (!getStructureConfig(structure, mcVersion, &sconf))
+        return posArray;
+
+    int regBlocks = (int)sconf.regionSize * 16; // region edge length in blocks
+    if (regBlocks <= 0)
+        return posArray;
+
+    Generator g;
     setupGenerator(&g, mcVersion, 0);
     applySeed(&g, dimension, seed);
 
-    for (int radius = 0; radius<=limit; radius++){
-        
-        for (int rx = -radius; rx<=radius; rx++){
-            for (int rz=-radius; rz<=radius; rz++){
-                
-                d = sqrt((cx-rx)*(cx-rx) + (cz-rz)*(cz-rz));
-                if ((radius-1) < d && d <= radius){
-                    Pos loc;
+    // Center region (floor division, correct for negatives).
+    int centerRegX = (cx >= 0) ? (cx / regBlocks) : -(((-cx) + regBlocks - 1) / regBlocks);
+    int centerRegZ = (cz >= 0) ? (cz / regBlocks) : -(((-cz) + regBlocks - 1) / regBlocks);
 
-                    if (getStructurePos(structure, mcVersion, seed, rx, rz, &loc)){
-                        if (isViableStructurePos(structure, &g, loc.x, loc.z, 0)){
+    // Region rings needed to cover `limit` blocks, plus margin: a structure can
+    // sit anywhere inside its region, so add 2 rings of slack.
+    int maxRing = (limit / regBlocks) + 2;
 
-                                posArray[0] = loc.x;
-                                posArray[1] = loc.z;
-                                return posArray;
-                        }
-                    }
-                }
+    long long limit2 = (long long)limit * (long long)limit;
+    long long bestDist2 = -1;
+    int bestX = 0, bestZ = 0;
+    int found = 0;
+
+    for (int ring = 0; ring <= maxRing; ring++){
+        // The closest a structure in this ring (or any further ring) can be to
+        // the center is at least (ring-1) full regions away.
+        long long ringFloor = (long long)(ring - 1) * (long long)regBlocks;
+        if (ring >= 1 && ringFloor > 0){
+            if (ringFloor * ringFloor > limit2) break;              // nothing left within limit
+            if (found && ringFloor * ringFloor >= bestDist2) break; // can't beat current best
+        }
+
+        for (int rx = centerRegX - ring; rx <= centerRegX + ring; rx++){
+            for (int rz = centerRegZ - ring; rz <= centerRegZ + ring; rz++){
+                // Only walk the border of the current ring.
+                if (ring != 0 &&
+                    rx != centerRegX - ring && rx != centerRegX + ring &&
+                    rz != centerRegZ - ring && rz != centerRegZ + ring)
+                    continue;
+
+                Pos loc;
+                if (!getStructurePos(structure, mcVersion, seed, rx, rz, &loc))
+                    continue;
+
+                long long dxb = (long long)loc.x - (long long)cx;
+                long long dzb = (long long)loc.z - (long long)cz;
+                long long d2 = dxb * dxb + dzb * dzb;
+
+                if (d2 > limit2)
+                    continue;
+                if (found && d2 >= bestDist2)
+                    continue;
+                if (!isViableStructurePos(structure, &g, loc.x, loc.z, 0))
+                    continue;
+
+                bestDist2 = d2;
+                bestX = loc.x;
+                bestZ = loc.z;
+                found = 1;
             }
         }
     }
-    posArray[0] = 0;
-    posArray[1] = 0;
+
+    if (found){
+        posArray[0] = bestX;
+        posArray[1] = bestZ;
+    }
     return posArray;
 }
 

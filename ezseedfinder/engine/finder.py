@@ -26,6 +26,7 @@ class SeedFinder:
         self.searched = 0
         self.rate = 0.0
         self.results: list[SeedResult] = []
+        self._cursor = 0
         self._t0 = 0.0
 
         doc = config.criteria_ast
@@ -76,6 +77,7 @@ class SeedFinder:
         self._pause.set()
         self.searched = 0
         self.results = []
+        self._cursor = 0
         self._t0 = time.monotonic()
         workers: list[threading.Thread] = []
 
@@ -93,7 +95,14 @@ class SeedFinder:
 
         return self.results
 
-    def _next_seed(self, worker_id: int) -> int | None:
+    def _next_seed(self) -> int | None:
+        """Return the next seed to test.
+
+        For random search each call is an independent random draw. For
+        sequential search a shared cursor hands every worker a distinct index,
+        so no seed is ever tested twice or skipped, and the search terminates
+        cleanly once the range is exhausted. Callers must hold ``self._lock``.
+        """
         if self.random_search:
             if self.seed_start is not None and self.seed_end is not None:
                 return random.randint(self.seed_start, self.seed_end)
@@ -105,8 +114,11 @@ class SeedFinder:
             self.seed_end = 2**48
 
         span = self.seed_end - self.seed_start + 1
-        idx = (self.searched + worker_id) % span
-        return self.seed_start + idx
+        if self._cursor >= span:
+            return None
+        seed = self.seed_start + self._cursor
+        self._cursor += 1
+        return seed
 
     def _worker(
         self,
@@ -126,10 +138,10 @@ class SeedFinder:
                 if len(self.results) >= self.max_results:
                     self._stop.set()
                     break
-
-            seed = self._next_seed(worker_id)
-            if seed is None:
-                break
+                seed = self._next_seed()
+                if seed is None:
+                    self._stop.set()
+                    break
 
             ok, details = self.checker.check(seed)
             local += 1

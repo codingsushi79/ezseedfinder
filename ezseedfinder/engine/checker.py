@@ -333,14 +333,14 @@ class SeedChecker:
         dim = dimension_id(rule.dimension)
         struct = structure_id(rule.structure)
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
-        limit = max(rule.max_dist // 16, 1)
-        pos = ctx.closest_structure(dim, struct, px, pz, limit)
+        # The native search already returns the nearest viable structure within
+        # this block radius (or nothing), so no separate viability re-check is
+        # needed.
+        pos = ctx.closest_structure(dim, struct, px, pz, rule.max_dist)
         if pos is None:
             return False
         dist = block_dist(px, pz, pos[0], pos[1])
         if dist > rule.max_dist:
-            return False
-        if rule.viable and not ctx.viable_structure(dim, struct, pos[0], pos[1]):
             return False
         if rule.structure == "village" and rule.village_abandoned is not None:
             biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
@@ -359,16 +359,10 @@ class SeedChecker:
         sa = structure_id(rule.structure_a)
         sb = structure_id(rule.structure_b)
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
-        limit = max(rule.max_dist // 16, 1)
-        pa = ctx.closest_structure(dim, sa, px, pz, limit)
-        pb = ctx.closest_structure(dim, sb, px, pz, limit)
+        pa = ctx.closest_structure(dim, sa, px, pz, rule.max_dist)
+        pb = ctx.closest_structure(dim, sb, px, pz, rule.max_dist)
         if pa is None or pb is None:
             return False
-        if rule.viable:
-            if not ctx.viable_structure(dim, sa, pa[0], pa[1]):
-                return False
-            if not ctx.viable_structure(dim, sb, pb[0], pb[1]):
-                return False
         dist = block_dist(pa[0], pa[1], pb[0], pb[1])
         ok = dist <= rule.max_dist
         if ok:
@@ -450,14 +444,11 @@ class SeedChecker:
     def _eval_bastion(self, ctx: WorldContext, rule: BastionRule, details: dict[str, Any]) -> bool:
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
         struct = structure_id("bastion")
-        limit = max(rule.max_dist // 16, 1)
-        pos = ctx.closest_structure(Dimension.DIM_NETHER, struct, px, pz, limit)
+        pos = ctx.closest_structure(Dimension.DIM_NETHER, struct, px, pz, rule.max_dist)
         if pos is None:
             return False
         dist = block_dist(px, pz, pos[0], pos[1])
         if dist > rule.max_dist:
-            return False
-        if rule.viable and not ctx.viable_structure(Dimension.DIM_NETHER, struct, pos[0], pos[1]):
             return False
         info = get_bastion_info(self.mc_version, ctx.seed, pos[0], pos[1])
         if info is None:
@@ -475,11 +466,11 @@ class SeedChecker:
         dim = dimension_id(rule.dimension)
         struct = structure_id(rule.structure)
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
-        limit = max(rule.max_dist // 16, 1)
-        pos = ctx.closest_structure(dim, struct, px, pz, limit)
+        pos = ctx.closest_structure(dim, struct, px, pz, rule.max_dist)
         if pos is None:
             return False
-        if rule.viable and not ctx.viable_structure(dim, struct, pos[0], pos[1]):
+        dist = block_dist(px, pz, pos[0], pos[1])
+        if dist > rule.max_dist:
             return False
         if rule.bastion_variant:
             info = get_bastion_info(self.mc_version, ctx.seed, pos[0], pos[1])
@@ -500,7 +491,7 @@ class SeedChecker:
         if rule.kind == "structures" and rule.b:
             sa = structure_id(rule.a)
             sb = structure_id(rule.b)
-            limit = max(int(rule.max_search) // 16, 1)
+            limit = max(int(rule.max_search), 1)
             cx, cz = (0, 0)
             if rule.ref:
                 cx, cz = resolve_point(ctx, rule.ref, rule.ref_pos)
@@ -563,14 +554,11 @@ class SeedChecker:
             else structure_id("ruined_portal")
         )
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
-        limit = max(rule.max_dist // 16, 1)
-        pos = ctx.closest_structure(dim, struct, px, pz, limit)
+        pos = ctx.closest_structure(dim, struct, px, pz, rule.max_dist)
         if pos is None:
             return False
         dist = block_dist(px, pz, pos[0], pos[1])
         if dist > rule.max_dist:
-            return False
-        if rule.viable and not ctx.viable_structure(dim, struct, pos[0], pos[1]):
             return False
 
         biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
@@ -600,12 +588,27 @@ class SeedChecker:
             return False
         if rule.template is not None and sv.start != rule.template:
             return False
-        if rule.top_missing is not None and portal.top_missing != rule.top_missing:
-            return False
-        if rule.frame_missing is not None and portal.frame_missing != rule.frame_missing:
-            return False
-        elif rule.top_missing is not None and not portal.missing_top_only(rule.top_missing):
-            return False
+
+        # Explicit frame-damage constraints take precedence over "viable" (they
+        # describe an intentionally incomplete portal), so they are mutually
+        # exclusive with the lightable check.
+        has_frame_constraint = rule.top_missing is not None or rule.frame_missing is not None
+        if rule.viable and not has_frame_constraint:
+            # A "viable" ruined portal has no crying obsidian (crying obsidian
+            # can't form a portal) and enough normal obsidian to complete a
+            # working Nether portal.
+            if not portal.is_lightable():
+                return False
+        else:
+            if rule.frame_missing is not None and portal.frame_missing != rule.frame_missing:
+                return False
+            if rule.top_missing is not None:
+                if portal.top_missing != rule.top_missing:
+                    return False
+                # When only a top-row count is given, require that exactly those
+                # top blocks are missing and nothing else.
+                if rule.frame_missing is None and not portal.missing_top_only(rule.top_missing):
+                    return False
 
         if rule.chest_items and portal.loot:
             for item, min_count in rule.chest_items:
@@ -618,6 +621,9 @@ class SeedChecker:
         details["ruined_portal_top_missing"] = portal.top_missing
         details["ruined_portal_frame_missing"] = portal.frame_missing
         details["ruined_portal_non_top_missing"] = portal.non_top_missing
+        details["ruined_portal_crying"] = portal.crying_count
+        details["ruined_portal_obsidian"] = portal.usable_obsidian
+        details["ruined_portal_lightable"] = portal.is_lightable()
         if portal.loot:
             details["ruined_portal_chest"] = dict(portal.loot.items)
         return True
@@ -626,9 +632,8 @@ class SeedChecker:
         dim = dimension_id(rule.dimension)
         struct_name = rule.structure.lower()
         px, pz = resolve_point(ctx, rule.ref, rule.ref_pos)
-        limit = max(rule.max_dist // 16, 1)
         struct = structure_id(struct_name)
-        pos = ctx.closest_structure(dim, struct, px, pz, limit)
+        pos = ctx.closest_structure(dim, struct, px, pz, rule.max_dist)
         if pos is None:
             return False
         dist = block_dist(px, pz, pos[0], pos[1])
@@ -658,9 +663,6 @@ class SeedChecker:
             info = get_bastion_info(self.mc_version, ctx.seed, pos[0], pos[1])
             if info is None or info.variant != "treasure":
                 return False
-
-        if not ctx.viable_structure(dim, struct, pos[0], pos[1]):
-            return False
 
         table = rule.loot_table or default_loot_table(struct_name)
         loot = self._roll_structure_loot(ctx, dim, struct_name, pos, table)

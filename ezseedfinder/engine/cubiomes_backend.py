@@ -78,13 +78,13 @@ STRUCTURE_MAP: dict[str, int] = {
 }
 
 BIOME_MAP: dict[str, BiomeID] = {}
-for name in dir(BiomeID):
+# Iterate __members__ so every alias (e.g. mushroomIsland, icePlains) is
+# registered, not just the canonical enum names returned by dir().
+for name, val in BiomeID.__members__.items():
     if name.startswith("_"):
         continue
-    val = getattr(BiomeID, name)
-    if isinstance(val, BiomeID):
-        BIOME_MAP[name.lower()] = val
-        BIOME_MAP[val.label.lower().replace(" ", "_")] = val
+    BIOME_MAP[name.lower()] = val
+    BIOME_MAP[val.label.lower().replace(" ", "_")] = val
 
 BASTION_MAP: dict[str, int] = {
     "housing": 0,
@@ -129,6 +129,8 @@ class WorldContext:
         self.version = version
         self.seed = seed
         self._gens: dict[int, Generator] = {}
+        self._spawn: tuple[int, int] | None = None
+        self._strongholds: list[tuple[int, int]] = []
 
     def gen(self, dimension: int) -> Generator:
         if dimension not in self._gens:
@@ -136,10 +138,18 @@ class WorldContext:
         return self._gens[dimension]
 
     def spawn(self) -> tuple[int, int]:
-        return self.gen(Dimension.DIM_OVERWORLD).get_spawn_pos()
+        # Spawn resolution is one of the most expensive cubiomes calls and is
+        # referenced repeatedly while checking a single seed, so cache it.
+        if self._spawn is None:
+            self._spawn = self.gen(Dimension.DIM_OVERWORLD).get_spawn_pos()
+        return self._spawn
 
     def strongholds(self, count: int = 128) -> list[tuple[int, int]]:
-        return self.gen(Dimension.DIM_OVERWORLD).get_stronghold_pos(count)
+        # Stronghold positions are generated in ring order, so a cached longer
+        # list already contains the answer for any smaller count.
+        if len(self._strongholds) < count:
+            self._strongholds = self.gen(Dimension.DIM_OVERWORLD).get_stronghold_pos(count)
+        return self._strongholds[:count]
 
     def biome_at(self, dimension: int, x: int, y: int, z: int) -> BiomeID:
         return self.gen(dimension).get_biome_at(x, y, z)

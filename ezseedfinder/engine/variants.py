@@ -129,6 +129,10 @@ def rotate_pos(x: int, y: int, z: int, size: list[int], rotation: int, mirror: b
     return z, y, sx - 1 - x
 
 
+# A minimum Nether portal frame (4x5 outer, corners optional) needs 10 obsidian.
+MIN_PORTAL_OBSIDIAN = 10
+
+
 @dataclass
 class PortalFrameResult:
     template: str
@@ -141,6 +145,7 @@ class PortalFrameResult:
     non_top_missing: int
     crying_count: int
     chest_pos: tuple[int, int, int] | None
+    obsidian_total: int = 0
     loot: LootResult | None = None
 
     def missing_top_only(self, count: int = 1) -> bool:
@@ -149,6 +154,16 @@ class PortalFrameResult:
             and self.frame_missing == count
             and self.non_top_missing == 0
         )
+
+    @property
+    def usable_obsidian(self) -> int:
+        """Number of real (non-crying) obsidian blocks the portal provides."""
+        return self.obsidian_total - self.crying_count
+
+    def is_lightable(self, min_obsidian: int = MIN_PORTAL_OBSIDIAN) -> bool:
+        """True if the portal has no crying obsidian and enough normal obsidian
+        to complete a working Nether portal."""
+        return self.crying_count == 0 and self.usable_obsidian >= min_obsidian
 
 
 def simulate_ruined_portal(
@@ -227,6 +242,7 @@ def simulate_ruined_portal(
         non_top_missing=len(non_top_missing),
         crying_count=crying,
         chest_pos=chest_world,
+        obsidian_total=len(obsidian),
         loot=loot,
     )
 

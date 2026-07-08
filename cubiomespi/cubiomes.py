@@ -97,7 +97,11 @@ def is_viable_structure_pos(structure: Structure, g: Generator, x: int, z: int) 
     lib.INTERFACE_isViableStructurePos.restype = ctypes.c_int
     lib.INTERFACE_isViableStructurePos.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_int, ctypes.c_int, ctypes.c_int]
     ptr = lib.INTERFACE_isViableStructurePos(cstructure, cversion, cseed, cdimension, cx, cz)
-    return ptr == 1
+    # cubiomes returns a non-zero value on a viable position (often the biome id,
+    # e.g. 35 for a savanna village), and 0 when not viable. Treat any non-zero
+    # result as viable; comparing against 1 wrongly rejected every structure
+    # whose viable biome id isn't plains(1).
+    return ptr != 0
 
 
 def get_stronghold_pos(g: Generator, count = 3) -> list[tuple[int, int]]:
