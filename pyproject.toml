@@ -41,7 +41,7 @@ where = ["."]
 include = ["ezseedfinder*", "cubiomespi*"]
 
 [tool.setuptools.package-data]
-ezseedfinder = ["engine/*.json", "examples/*.ezsf"]
+ezseedfinder = ["engine/*.json", "engine/loot_data/*.json", "examples/*.ezsf"]
 cubiomespi = [
     "lib/*.c",
     "lib/cubiomes/*.c",

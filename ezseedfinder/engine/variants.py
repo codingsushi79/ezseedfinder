@@ -11,7 +11,7 @@ from pathlib import Path
 from cubiomespi import Dimension, Generator, Structure
 
 from .java_random import JavaRandom, chunk_generate_rnd, structure_processor_seed
-from .loot_tables import LOOT_TABLES, LootResult, roll_chest_loot, roll_ruined_portal_chest
+from .loot_tables import LootResult, roll_ruined_portal_chest
 
 _DATA_PATH = Path(__file__).with_name("portal_templates_data.json")
 _TEMPLATES: dict | None = None
@@ -157,6 +157,7 @@ def simulate_ruined_portal(
     x: int,
     z: int,
     biome_id: int,
+    game_version: str = "1.16.1",
     surface_y: int = 64,
     roll_loot: bool = True,
 ) -> PortalFrameResult | None:
@@ -206,7 +207,7 @@ def simulate_ruined_portal(
         rx, ry, rz = rotate_pos(cx, cy, cz, size, sv.rotation, bool(sv.mirror))
         chest_world = (place_x + rx, place_y + ry, place_z + rz)
         if roll_loot:
-            loot = roll_ruined_portal_chest(seed, *chest_world)
+            loot = roll_ruined_portal_chest(game_version, seed, *chest_world)
 
     return PortalFrameResult(
         template=key,

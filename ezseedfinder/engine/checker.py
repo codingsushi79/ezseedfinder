@@ -25,7 +25,7 @@ from ..ezsf.ast import (
     StructureVariantRule,
     TerrainRule,
 )
-from .loot_tables import LOOT_TABLES, roll_chest_loot
+from .loot_tables import get_loot_tables, roll_chest_loot
 from .variants import (
     get_bastion_info,
     get_structure_variant,
@@ -94,6 +94,7 @@ class SeedChecker:
         self.doc = doc or Document()
         self.gui_filters = gui_filters or {}
         version = self.doc.version or self.gui_filters.get("version", "26.2")
+        self.version_str = version
         self.mc_version = resolve_version(version)
 
     def check(self, seed: int) -> tuple[bool, dict[str, Any]]:
@@ -487,6 +488,7 @@ class SeedChecker:
             pos[0],
             pos[1],
             biome,
+            game_version=self.version_str,
             roll_loot=bool(rule.chest_items),
         )
         if portal is None:
@@ -538,7 +540,14 @@ class SeedChecker:
 
         if struct_name in ("ruined_portal", "ruined_portal_n"):
             biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
-            portal = simulate_ruined_portal(self.mc_version, ctx.seed, pos[0], pos[1], biome)
+            portal = simulate_ruined_portal(
+                self.mc_version,
+                ctx.seed,
+                pos[0],
+                pos[1],
+                biome,
+                game_version=self.version_str,
+            )
             if portal is None or portal.loot is None:
                 return False
             if not portal.loot.has(rule.item.lower(), rule.min_count):
@@ -549,7 +558,7 @@ class SeedChecker:
 
         if struct_name in ("treasure", "buried_treasure"):
             table = rule.loot_table or "buried_treasure"
-            loot = roll_chest_loot(table, ctx.seed, pos[0], 64, pos[1])
+            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
             if not loot.has(rule.item.lower(), rule.min_count):
                 return False
             details["loot_chest"] = dict(loot.items)
@@ -558,7 +567,7 @@ class SeedChecker:
 
         if struct_name in ("shipwreck",):
             table = rule.loot_table or "shipwreck_treasure"
-            loot = roll_chest_loot(table, ctx.seed, pos[0], 64, pos[1])
+            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
             if not loot.has(rule.item.lower(), rule.min_count):
                 return False
             details["loot_chest"] = dict(loot.items)
@@ -568,8 +577,8 @@ class SeedChecker:
         if not ctx.viable_structure(dim, struct, pos[0], pos[1]):
             return False
         table = rule.loot_table
-        if table and table in LOOT_TABLES:
-            loot = roll_chest_loot(table, ctx.seed, pos[0], 64, pos[1])
+        if table and table in get_loot_tables(self.version_str):
+            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
             if not loot.has(rule.item.lower(), rule.min_count):
                 return False
             details["loot_chest"] = dict(loot.items)

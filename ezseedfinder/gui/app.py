@@ -8,13 +8,16 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
 
+from ezseedfinder import __version__
 from ezseedfinder.paths import examples_dir
 
 from ..engine.finder import SeedFinder, load_ezsf_file
+from ..engine.loot_tables import loot_data_version, loot_table_item_names
 from ..models.criteria import SearchConfig, SeedResult
 from .criteria_widgets import (
     BASTION_VARIANTS,
     COMPARE_OPS,
+    DEFAULT_LOOT_ITEMS,
     DIMENSIONS,
     MOB_TYPES,
     PORTAL_TEMPLATES,
@@ -83,7 +86,7 @@ STRUCTURE_NAMES = tuple(name for _label, name, _dim in STRUCTURE_FIELDS)
 class SeedFinderApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("EZ Seed Finder")
+        self.title(f"EZ Seed Finder v{__version__}")
         self.minsize(1280, 900)
 
         self._finder: SeedFinder | None = None
@@ -342,6 +345,9 @@ class SeedFinderApp(tk.Tk):
                 ttk.Label(tab, text="Chest loot requirements", style="Header.TLabel").pack(
                     anchor=tk.W, pady=(8, 2)
                 )
+                loot_label = ttk.Label(tab, text="", font=("Segoe UI", 8))
+                loot_label.pack(anchor=tk.W)
+                cfg["loot_table_label"] = loot_label
                 cfg["chest_frame"] = ttk.Frame(tab)
                 cfg["chest_frame"].pack(fill=tk.X)
                 self._struct_configs[name] = cfg
@@ -366,7 +372,9 @@ class SeedFinderApp(tk.Tk):
                 table = STRUCTURE_LOOT_TABLE[name]
                 cfg["loot_table"] = table
                 self._struct_configs[name] = cfg
-                ttk.Label(tab, text=f"Loot table: {table}", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
+                loot_label = ttk.Label(tab, text="", style="Header.TLabel")
+                loot_label.pack(anchor=tk.W, pady=(0, 6))
+                cfg["loot_table_label"] = loot_label
                 cfg["ref"] = ref_row(tab, "spawn")
                 cfg["max_dist"] = dist_row(tab, default_dist(name))
                 cfg["viable"] = tk.BooleanVar(value=True)
@@ -394,10 +402,48 @@ class SeedFinderApp(tk.Tk):
 
             self._struct_configs[name] = cfg
 
+    def _loot_table_for_struct(self, struct_name: str) -> str | None:
+        kind = structure_kind(struct_name)
+        if kind == "portal":
+            return "ruined_portal"
+        if kind == "loot_chest":
+            return STRUCTURE_LOOT_TABLE.get(struct_name)
+        return None
+
+    def _loot_items_for_struct(self, struct_name: str) -> tuple[str, ...]:
+        table = self._loot_table_for_struct(struct_name)
+        if table is None:
+            return DEFAULT_LOOT_ITEMS
+        items = loot_table_item_names(self.version_var.get(), table)
+        return items if items else DEFAULT_LOOT_ITEMS
+
+    def _refresh_loot_ui(self, *_args: object) -> None:
+        version = self.version_var.get()
+        try:
+            data_ver = loot_data_version(version)
+        except FileNotFoundError:
+            data_ver = version
+        for name, cfg in self._struct_configs.items():
+            table = self._loot_table_for_struct(name)
+            if table is None:
+                continue
+            label = cfg.get("loot_table_label")
+            if label is not None:
+                label.configure(text=f"Loot table: {table} ({data_ver})")
+            items = self._loot_items_for_struct(name)
+            for row in self._chest_rows.get(name, []):
+                combo = row.get("combo")
+                if combo is None:
+                    continue
+                combo.configure(values=items)
+                current = row["item"].get()
+                if current not in items and items:
+                    row["item"].set(items[0])
+
     def _add_chest_row(self, struct_name: str, item: str = "obsidian", count: str = "1") -> None:
         cfg = self._struct_configs[struct_name]
         frame = cfg["chest_frame"]
-        row = chest_item_row(frame)
+        row = chest_item_row(frame, self._loot_items_for_struct(struct_name))
 
         def remove() -> None:
             row["row"].destroy()
@@ -720,6 +766,8 @@ class SeedFinderApp(tk.Tk):
         self.ezsf_text.bind("<<Modified>>", on_ezsf_modified)
         self.ezsf_text.bind("<FocusOut>", lambda _e: self._schedule_ezsf_to_gui())
         self._sync_gui_to_ezsf()
+        self.version_var.trace_add("write", self._refresh_loot_ui)
+        self._refresh_loot_ui()
 
     def _ezsf_editor_focused(self) -> bool:
         focus = self.focus_get()

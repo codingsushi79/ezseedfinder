@@ -7,14 +7,11 @@ import tkinter.font as tkfont
 from tkinter import ttk
 from typing import Any
 
-from ..engine.loot_tables import LOOT_TABLE_NAMES
-
-
 REF_PRESETS = ("spawn", "origin", "0,0", "custom")
 DIMENSIONS = ("overworld", "nether", "end")
 BASTION_VARIANTS = ("treasure", "housing", "stables", "bridge")
 PORTAL_TEMPLATES = ("", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
-LOOT_ITEMS = (
+DEFAULT_LOOT_ITEMS = (
     "obsidian",
     "flint_and_steel",
     "fire_charge",
@@ -29,7 +26,7 @@ LOOT_ITEMS = (
     "iron_ingot",
     "tnt",
 )
-LOOT_TABLES = LOOT_TABLE_NAMES
+LOOT_ITEMS = DEFAULT_LOOT_ITEMS
 MOB_TYPES = ("witch", "slime", "magma_cube", "ghast", "blaze", "enderman", "piglin")
 TERRAIN_TYPES = ("flat", "mountainous", "oceanic")
 COMPARE_OPS = ("<=", ">=", "==", "<", ">")
@@ -249,18 +246,23 @@ def dist_row(parent: ttk.Frame, default: str = "500") -> tk.StringVar:
     return labeled_entry(parent, "Max distance (blocks)", default)
 
 
-def chest_item_row(parent: ttk.Frame) -> dict[str, Any]:
+def chest_item_row(
+    parent: ttk.Frame,
+    item_values: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     row = ttk.Frame(parent)
     row.pack(fill=tk.X, pady=2)
     item_var = tk.StringVar(value="obsidian")
     count_var = tk.StringVar(value="1")
-    ttk.Combobox(
+    values = item_values or DEFAULT_LOOT_ITEMS
+    combo = ttk.Combobox(
         row,
         textvariable=item_var,
-        values=LOOT_ITEMS,
+        values=values,
         width=18,
         state="readonly",
-    ).pack(side=tk.LEFT, padx=(0, 4))
+    )
+    combo.pack(side=tk.LEFT, padx=(0, 4))
     ttk.Label(row, text="min").pack(side=tk.LEFT)
     ttk.Entry(row, textvariable=count_var, width=5).pack(side=tk.LEFT, padx=4)
-    return {"row": row, "item": item_var, "count": count_var}
+    return {"row": row, "item": item_var, "count": count_var, "combo": combo}

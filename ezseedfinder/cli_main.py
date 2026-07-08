@@ -5,16 +5,31 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ezseedfinder.engine.finder import SeedFinder, load_ezsf_file
-from ezseedfinder.models.criteria import SearchConfig
+from ezseedfinder import __version__
 
 
 def cli_main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if "-V" in argv or "--pkg-version" in argv:
+        print(f"ezsf {__version__}")
+        return 0
+
+    from ezseedfinder.engine.finder import SeedFinder, load_ezsf_file
+    from ezseedfinder.models.criteria import SearchConfig
+
     parser = argparse.ArgumentParser(
         prog="ezsf",
         description="EZ Seed Finder — search Minecraft Java Edition seeds",
     )
     parser.add_argument("-f", "--file", help="Path to .ezsf criteria file")
+    parser.add_argument(
+        "-V",
+        "--pkg-version",
+        action="version",
+        version=f"ezsf {__version__}",
+        help="Show package version and exit",
+    )
     parser.add_argument("-v", "--version", default="26.2", help="Minecraft version")
     parser.add_argument("-n", "--max-results", type=int, default=5)
     parser.add_argument("-t", "--threads", type=int, default=0)
