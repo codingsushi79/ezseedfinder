@@ -6,7 +6,7 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from ezseedfinder import __version__
@@ -34,7 +34,7 @@ from .criteria_widgets import (
     structure_checkbox,
     toggle_block,
 )
-from .theme import apply_dark_theme, style_text_widget
+from .theme import add_scrolled_text, apply_dark_theme, style_text_widget
 from .export_results import write_results
 from .ezsf_builder import build_ezsf
 from .ezsf_importer import FEATURE_KEYS, apply_criteria_to_gui, parse_ezsf_to_criteria
@@ -160,9 +160,9 @@ class SeedFinderApp(tk.Tk):
 
         ff = ttk.LabelFrame(parent, text="Features", padding=(10, 8))
         ff.pack(fill=tk.X, pady=(0, 6))
-        row1 = ttk.Frame(ff)
+        row1 = ttk.Frame(ff, style="Surface.TFrame")
         row1.pack(fill=tk.X)
-        row2 = ttk.Frame(ff)
+        row2 = ttk.Frame(ff, style="Surface.TFrame")
         row2.pack(fill=tk.X, pady=(4, 0))
         for i, key in enumerate(FEATURE_KEYS):
             parent_row = row1 if i < 4 else row2
@@ -171,6 +171,7 @@ class SeedFinderApp(tk.Tk):
                 text=FEATURE_LABELS[key],
                 variable=self._feature_vars[key],
                 command=lambda k=key: self._on_feature_toggled(k),
+                style="Surface.TCheckbutton",
             ).pack(side=tk.LEFT, padx=(0, 10))
 
         self._notebook = ttk.Notebook(parent)
@@ -599,13 +600,15 @@ class SeedFinderApp(tk.Tk):
         self.max_results_var = labeled_entry(sf, "Max results", "10")
         self.threads_var = labeled_entry(sf, "Threads (0=auto)", "0")
         self.random_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sf, text="Random search", variable=self.random_var).pack(anchor=tk.W)
+        ttk.Checkbutton(sf, text="Random search", variable=self.random_var, style="Surface.TCheckbutton").pack(
+            anchor=tk.W
+        )
         self.seed_start_var = labeled_entry(sf, "Seed start (optional)", "")
         self.seed_end_var = labeled_entry(sf, "Seed end (optional)", "")
 
         vf = ttk.LabelFrame(tab, text="Verify seed", padding=8)
         vf.pack(fill=tk.X, pady=4)
-        vrow = ttk.Frame(vf)
+        vrow = ttk.Frame(vf, style="Surface.TFrame")
         vrow.pack(fill=tk.X)
         self.verify_seed_var = tk.StringVar(value="")
         ttk.Entry(vrow, textvariable=self.verify_seed_var, width=24).pack(side=tk.LEFT, padx=(0, 4))
@@ -614,8 +617,10 @@ class SeedFinderApp(tk.Tk):
         # Legacy quick filters still used by _check_gui for simple distance-only searches
         lf = ttk.LabelFrame(tab, text="Quick distance filters (legacy)", padding=8)
         lf.pack(fill=tk.X, pady=4)
-        ttk.Label(lf, text="Also checked directly (no .ezsf needed)").pack(anchor=tk.W, pady=(0, 4))
-        inner = ttk.Frame(lf)
+        ttk.Label(lf, text="Also checked directly (no .ezsf needed)", style="SurfaceMuted.TLabel").pack(
+            anchor=tk.W, pady=(0, 4)
+        )
+        inner = ttk.Frame(lf, style="Surface.TFrame")
         inner.pack(fill=tk.X)
         self.dist_vars: dict[str, tk.StringVar] = {}
         self.dist_enabled: dict[str, tk.BooleanVar] = {}
@@ -628,12 +633,14 @@ class SeedFinderApp(tk.Tk):
             ("Fortress", "fortress_dist"),
         ]
         for label, key in legacy:
-            row = ttk.Frame(inner)
+            row = ttk.Frame(inner, style="Surface.TFrame")
             row.pack(fill=tk.X, pady=2)
             enabled = tk.BooleanVar(value=False)
             self.dist_enabled[key] = enabled
-            ttk.Checkbutton(row, variable=enabled, width=2).pack(side=tk.LEFT, padx=(0, 4))
-            ttk.Label(row, text=label, width=16).pack(side=tk.LEFT)
+            ttk.Checkbutton(row, variable=enabled, width=2, style="Surface.TCheckbutton").pack(
+                side=tk.LEFT, padx=(0, 4)
+            )
+            ttk.Label(row, text=label, width=16, style="Surface.TLabel").pack(side=tk.LEFT)
             var = tk.StringVar(value="500" if key == "village_dist" else "0")
             self.dist_vars[key] = var
             entry = ttk.Entry(row, textvariable=var, width=10)
@@ -653,7 +660,7 @@ class SeedFinderApp(tk.Tk):
         ef = ttk.LabelFrame(parent, text=".ezsf Criteria (text)", padding=6)
         ef.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
 
-        toolbar = ttk.Frame(ef)
+        toolbar = ttk.Frame(ef, style="Surface.TFrame")
         toolbar.pack(fill=tk.X, pady=(0, 4))
         ttk.Button(toolbar, text="Load .ezsf", command=self._load_ezsf).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(toolbar, text="Save .ezsf", command=self._save_ezsf).pack(side=tk.LEFT, padx=(0, 4))
@@ -668,15 +675,14 @@ class SeedFinderApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(toolbar, text="Load preset", command=self._load_preset).pack(side=tk.LEFT)
 
-        self.ezsf_text = scrolledtext.ScrolledText(
+        self.ezsf_text = add_scrolled_text(
             ef, wrap=tk.NONE, height=14, undo=True
         )
-        self.ezsf_text.pack(fill=tk.BOTH, expand=True)
 
         rf = ttk.LabelFrame(parent, text="Results", padding=6)
         rf.pack(fill=tk.BOTH, expand=True)
 
-        rtoolbar = ttk.Frame(rf)
+        rtoolbar = ttk.Frame(rf, style="Surface.TFrame")
         rtoolbar.pack(fill=tk.X, pady=(0, 4))
         ttk.Button(rtoolbar, text="Export TXT", command=lambda: self._export_results("txt")).pack(
             side=tk.LEFT, padx=(0, 4)
@@ -688,7 +694,7 @@ class SeedFinderApp(tk.Tk):
         rsplit = ttk.PanedWindow(rf, orient=tk.VERTICAL)
         rsplit.pack(fill=tk.BOTH, expand=True)
 
-        tree_frame = ttk.Frame(rsplit)
+        tree_frame = ttk.Frame(rsplit, style="Surface.TFrame")
         cols = ("seed", "spawn", "summary")
         self.results_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=6)
         self.results_tree.heading("seed", text="Seed")
@@ -704,17 +710,18 @@ class SeedFinderApp(tk.Tk):
         rsplit.add(tree_frame, weight=2)
 
         detail_frame = ttk.LabelFrame(rsplit, text="Result details", padding=4)
-        self.result_detail_text = scrolledtext.ScrolledText(
+        self.result_detail_text = add_scrolled_text(
             detail_frame, wrap=tk.WORD, height=8, state=tk.DISABLED
         )
-        self.result_detail_text.pack(fill=tk.BOTH, expand=True)
         rsplit.add(detail_frame, weight=1)
 
         self.results_tree.bind("<<TreeviewSelect>>", self._on_result_select)
         self.results_tree.bind("<Double-1>", self._copy_seed)
-        ttk.Label(rf, text="Select a row for details; double-click to copy seed", style="Muted.TLabel").pack(
-            anchor=tk.W, pady=(4, 0)
-        )
+        ttk.Label(
+            rf,
+            text="Select a row for details; double-click to copy seed",
+            style="SurfaceMuted.TLabel",
+        ).pack(anchor=tk.W, pady=(4, 0))
 
     def _build_status_bar(self) -> None:
         bar = ttk.Frame(self, padding=(12, 6), style="StatusBar.TFrame")
