@@ -129,8 +129,22 @@ def rotate_pos(x: int, y: int, z: int, size: list[int], rotation: int, mirror: b
     return z, y, sx - 1 - x
 
 
-# A minimum Nether portal frame (4x5 outer, corners optional) needs 10 obsidian.
-MIN_PORTAL_OBSIDIAN = 10
+def _frame_corners(frame_set: set[tuple[int, int, int]]) -> set[tuple[int, int, int]]:
+    """Return the (up to 4) corner positions of a planar portal frame.
+
+    A Nether portal is vertical, so it varies in Y plus one horizontal axis.
+    Corners sit at the extremes of both, and are optional for activation.
+    """
+    if not frame_set:
+        return set()
+    xs = {p[0] for p in frame_set}
+    zs = {p[2] for p in frame_set}
+    ys = {p[1] for p in frame_set}
+    haxis = 0 if len(xs) >= len(zs) else 2
+    hvals = xs if haxis == 0 else zs
+    hmin, hmax = min(hvals), max(hvals)
+    ymin, ymax = min(ys), max(ys)
+    return {p for p in frame_set if p[haxis] in (hmin, hmax) and p[1] in (ymin, ymax)}
 
 
 @dataclass
@@ -146,6 +160,7 @@ class PortalFrameResult:
     crying_count: int
     chest_pos: tuple[int, int, int] | None
     obsidian_total: int = 0
+    obsidian_needed: int = 0
     loot: LootResult | None = None
 
     def missing_top_only(self, count: int = 1) -> bool:
@@ -160,10 +175,14 @@ class PortalFrameResult:
         """Number of real (non-crying) obsidian blocks the portal provides."""
         return self.obsidian_total - self.crying_count
 
-    def is_lightable(self, min_obsidian: int = MIN_PORTAL_OBSIDIAN) -> bool:
-        """True if the portal has no crying obsidian and enough normal obsidian
-        to complete a working Nether portal."""
-        return self.crying_count == 0 and self.usable_obsidian >= min_obsidian
+    def chest_obsidian(self) -> int:
+        """Obsidian rolled in the portal's chest (0 if no chest / not rolled)."""
+        return self.loot.count("obsidian") if self.loot else 0
+
+    def is_lightable(self) -> bool:
+        """True if the portal has no crying obsidian and its chest holds at
+        least as much obsidian as is still needed to complete and light it."""
+        return self.crying_count == 0 and self.chest_obsidian() >= self.obsidian_needed
 
 
 def simulate_ruined_portal(
@@ -222,6 +241,12 @@ def simulate_ruined_portal(
     top_missing = {p for p in missing_positions if p[1] == frame_y}
     non_top_missing = missing_positions - top_missing
 
+    # Obsidian the player must still place to complete + light the portal.
+    # The 4 corners of the frame are optional for activation, so they don't
+    # count toward what's "needed".
+    corners = _frame_corners(frame_set)
+    obsidian_needed = len(missing_positions - corners)
+
     chest_world = None
     loot = None
     if tpl.get("chest"):
@@ -243,6 +268,7 @@ def simulate_ruined_portal(
         crying_count=crying,
         chest_pos=chest_world,
         obsidian_total=len(obsidian),
+        obsidian_needed=obsidian_needed,
         loot=loot,
     )
 

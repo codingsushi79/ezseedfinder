@@ -563,6 +563,10 @@ class SeedChecker:
 
         biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
         is_nether = dim == Dimension.DIM_NETHER
+        # The "viable" check compares chest obsidian to what the portal needs,
+        # so it also requires the chest loot to be rolled.
+        has_frame_constraint = rule.top_missing is not None or rule.frame_missing is not None
+        want_loot = bool(rule.chest_items) or (rule.viable and not has_frame_constraint)
         portal = simulate_ruined_portal(
             self.mc_version,
             ctx.seed,
@@ -570,7 +574,7 @@ class SeedChecker:
             pos[1],
             biome,
             game_version=self.version_str,
-            roll_loot=bool(rule.chest_items),
+            roll_loot=want_loot,
             nether=is_nether,
         )
         if portal is None:
@@ -592,11 +596,9 @@ class SeedChecker:
         # Explicit frame-damage constraints take precedence over "viable" (they
         # describe an intentionally incomplete portal), so they are mutually
         # exclusive with the lightable check.
-        has_frame_constraint = rule.top_missing is not None or rule.frame_missing is not None
         if rule.viable and not has_frame_constraint:
-            # A "viable" ruined portal has no crying obsidian (crying obsidian
-            # can't form a portal) and enough normal obsidian to complete a
-            # working Nether portal.
+            # A "viable" ruined portal has no crying obsidian and its chest holds
+            # at least as much obsidian as is still needed to finish and light it.
             if not portal.is_lightable():
                 return False
         else:
@@ -622,8 +624,10 @@ class SeedChecker:
         details["ruined_portal_frame_missing"] = portal.frame_missing
         details["ruined_portal_non_top_missing"] = portal.non_top_missing
         details["ruined_portal_crying"] = portal.crying_count
-        details["ruined_portal_obsidian"] = portal.usable_obsidian
-        details["ruined_portal_lightable"] = portal.is_lightable()
+        details["ruined_portal_obsidian_needed"] = portal.obsidian_needed
+        if want_loot:
+            details["ruined_portal_chest_obsidian"] = portal.chest_obsidian()
+            details["ruined_portal_lightable"] = portal.is_lightable()
         if portal.loot:
             details["ruined_portal_chest"] = dict(portal.loot.items)
         return True

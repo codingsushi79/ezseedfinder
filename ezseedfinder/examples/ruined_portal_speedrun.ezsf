@@ -1,6 +1,8 @@
 # 1.16.1 — ruined portal speedrun seed
-# portal_6: 5x5 frame with exactly 1 obsidian missing (top center only)
-# Chest: 1+ obsidian and flint and steel
+# Any ruined portal template except giant, as long as it's viable:
+#   - no crying obsidian
+#   - chest holds enough obsidian to finish + light the portal
+# Chest also needs 2+ obsidian and a flint and steel.
 version 1.16.1
 threads 8
 max_results 5
@@ -8,6 +10,5 @@ max_results 5
 spawn within 10 of origin
 
 dimension overworld {
-  ruined_portal within 25 of spawn viable giant false template 6 top_missing 1 frame_missing 1 chest item obsidian min 1 chest item flint_and_steel min 1
-  structure village within 800 of spawn viable
+  ruined_portal within 25 of spawn viable giant false chest item obsidian min 2 chest item flint_and_steel min 1
 }
