@@ -32,20 +32,54 @@ class DarkTheme:
 
 THEME = DarkTheme()
 
-_UI_FONT = ("Segoe UI", 10)
-_HEADER_FONT = ("Segoe UI", 11, "bold")
-_STATUS_FONT = ("Consolas", 10)
-_CODE_FONT = ("JetBrains Mono", 10)
-_CODE_FONT_FALLBACK = ("Consolas", 10)
+_UI_FAMILY: str | None = None
+_CODE_FAMILY: str | None = None
+
+_UI_FAMILY_CANDIDATES = (
+    "Segoe UI",
+    "Ubuntu",
+    "Noto Sans",
+    "Inter",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Cantarell",
+    "Helvetica Neue",
+    "Arial",
+)
+_CODE_FAMILY_CANDIDATES = (
+    "JetBrains Mono",
+    "Fira Code",
+    "Cascadia Mono",
+    "Consolas",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Ubuntu Mono",
+)
 
 
-def _code_font() -> tuple[str, int]:
-    families = set(tkfont.families())
-    if "JetBrains Mono" in families:
-        return _CODE_FONT
-    if "Fira Code" in families:
-        return ("Fira Code", 10)
-    return _CODE_FONT_FALLBACK
+def _pick_family(candidates: tuple[str, ...], root: tk.Misc) -> str:
+    available = {name.lower(): name for name in tkfont.families(root)}
+    for candidate in candidates:
+        if candidate.lower() in available:
+            return available[candidate.lower()]
+    return tkfont.nametofont("TkDefaultFont").actual("family", displayof=root)
+
+
+def _resolve_fonts(root: tk.Misc) -> None:
+    global _UI_FAMILY, _CODE_FAMILY
+    _UI_FAMILY = _pick_family(_UI_FAMILY_CANDIDATES, root)
+    _CODE_FAMILY = _pick_family(_CODE_FAMILY_CANDIDATES, root)
+
+
+def ui_font(size: int = 10, *, bold: bool = False) -> tuple[str, int] | tuple[str, int, str]:
+    family = _UI_FAMILY or "sans-serif"
+    if bold:
+        return (family, size, "bold")
+    return (family, size)
+
+
+def code_font(size: int = 10) -> tuple[str, int]:
+    return (_CODE_FAMILY or "TkFixedFont", size)
 
 
 def _flat_bevel(style: ttk.Style, name: str, bg: str, *, border: str | None = None) -> None:
@@ -59,8 +93,8 @@ def _flat_bevel(style: ttk.Style, name: str, bg: str, *, border: str | None = No
     )
 
 
-def _strip_clam_borders(style: ttk.Style) -> None:
-    """Drop clam border elements that draw bright 1px outlines on Linux."""
+def _strip_labelframe_border(style: ttk.Style) -> None:
+    """Labelframe border element draws bright outlines; use padding-only layout."""
     style.layout(
         "TLabelframe",
         [
@@ -76,51 +110,31 @@ def _strip_clam_borders(style: ttk.Style) -> None:
             )
         ],
     )
-    style.layout(
-        "TEntry",
-        [
-            (
-                "Entry.padding",
-                {
-                    "sticky": "nswe",
-                    "children": [("Entry.textarea", {"sticky": "nswe"})],
-                },
-            )
-        ],
-    )
-    style.layout(
-        "TButton",
-        [
-            (
-                "Button.padding",
-                {
-                    "sticky": "nswe",
-                    "children": [("Button.label", {"sticky": "nswe"})],
-                },
-            )
-        ],
-    )
-    style.layout(
-        "TCombobox",
-        [
-            ("Combobox.downarrow", {"side": "right", "sticky": "ns"}),
-            (
-                "Combobox.padding",
-                {
-                    "sticky": "nswe",
-                    "children": [("Combobox.textarea", {"sticky": "nswe"})],
-                },
-            ),
-        ],
-    )
+
+
+def _apply_tk_options(root: tk.Misc, t: DarkTheme) -> None:
+    root.option_add("*highlightThickness", 0)
+    root.option_add("*borderWidth", 0)
+    root.option_add("*Font", ui_font())
+    root.option_add("*Background", t.bg)
+    root.option_add("*Foreground", t.fg)
+    root.option_add("*selectBackground", t.select_bg)
+    root.option_add("*selectForeground", t.fg)
+    root.option_add("*insertBackground", t.fg)
+    root.option_add("*TCombobox*Listbox.background", t.input_bg)
+    root.option_add("*TCombobox*Listbox.foreground", t.fg)
+    root.option_add("*TCombobox*Listbox.selectBackground", t.select_bg)
+    root.option_add("*TCombobox*Listbox.selectForeground", t.fg)
+    root.option_add("*TCombobox*Listbox.highlightThickness", 0)
+    root.option_add("*TCombobox*Listbox.borderWidth", 0)
 
 
 def apply_dark_theme(root: tk.Misc) -> DarkTheme:
-    """Apply dark ttk + tk styling. Call after widgets are built to style Text widgets too."""
+    """Apply dark ttk + tk styling."""
     t = THEME
+    _resolve_fonts(root)
     root.configure(bg=t.bg)
-    root.option_add("*highlightThickness", 0)
-    root.option_add("*borderWidth", 0)
+    _apply_tk_options(root, t)
 
     style = ttk.Style(root)
     try:
@@ -128,7 +142,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
     except tk.TclError:
         pass
 
-    _strip_clam_borders(style)
+    _strip_labelframe_border(style)
 
     # Base — flat, no default bevel
     style.configure(
@@ -139,15 +153,16 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         lightcolor=t.bg,
         darkcolor=t.bg,
         relief=tk.FLAT,
+        font=ui_font(),
     )
     style.configure("TFrame", background=t.bg, borderwidth=0)
     _flat_bevel(style, "TFrame", t.bg)
 
-    style.configure("TLabel", background=t.bg, foreground=t.fg, font=_UI_FONT)
+    style.configure("TLabel", background=t.bg, foreground=t.fg, font=ui_font())
     _flat_bevel(style, "TLabel", t.bg)
 
-    style.configure("Header.TLabel", background=t.bg, foreground=t.fg, font=_HEADER_FONT)
-    style.configure("Muted.TLabel", background=t.bg, foreground=t.fg_muted, font=("Segoe UI", 9))
+    style.configure("Header.TLabel", background=t.bg, foreground=t.fg, font=ui_font(11, bold=True))
+    style.configure("Muted.TLabel", background=t.bg, foreground=t.fg_muted, font=ui_font(9))
 
     style.configure("StatusBar.TFrame", background=t.surface)
     _flat_bevel(style, "StatusBar.TFrame", t.surface)
@@ -155,11 +170,11 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         "Status.TLabel",
         background=t.surface,
         foreground=t.fg_muted,
-        font=_STATUS_FONT,
+        font=code_font(),
         padding=(4, 2),
     )
 
-    # Sections — flat card on surface, no groove border
+    # Sections — flat card on surface
     style.configure(
         "TLabelframe",
         background=t.surface,
@@ -175,12 +190,11 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         "TLabelframe.Label",
         background=t.surface,
         foreground=t.fg,
-        font=_HEADER_FONT,
+        font=ui_font(11, bold=True),
     )
-    # Labels/checkboxes inside labelframes should match surface bg
-    style.configure("Surface.TLabel", background=t.surface, foreground=t.fg, font=_UI_FONT)
-    style.configure("SurfaceMuted.TLabel", background=t.surface, foreground=t.fg_muted, font=("Segoe UI", 9))
-    style.configure("Surface.TCheckbutton", background=t.surface, foreground=t.fg, font=_UI_FONT)
+    style.configure("Surface.TLabel", background=t.surface, foreground=t.fg, font=ui_font())
+    style.configure("SurfaceMuted.TLabel", background=t.surface, foreground=t.fg_muted, font=ui_font(9))
+    style.configure("Surface.TCheckbutton", background=t.surface, foreground=t.fg, font=ui_font())
     _flat_bevel(style, "Surface.TCheckbutton", t.surface)
     style.configure("Surface.TFrame", background=t.surface)
     _flat_bevel(style, "Surface.TFrame", t.surface)
@@ -190,13 +204,14 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         foreground=[("disabled", t.fg_muted)],
     )
 
-    # Inputs
+    # Inputs — keep clam field/border elements so fieldbackground paints correctly
     style.configure(
         "TEntry",
         fieldbackground=t.input_bg,
         foreground=t.fg,
         insertcolor=t.fg,
-        borderwidth=0,
+        background=t.input_bg,
+        borderwidth=1,
         relief=tk.FLAT,
         padding=4,
     )
@@ -206,23 +221,25 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         "TCombobox",
         fieldbackground=t.input_bg,
         foreground=t.fg,
+        background=t.input_bg,
         arrowcolor=t.fg_muted,
-        borderwidth=0,
+        borderwidth=1,
         relief=tk.FLAT,
         padding=4,
     )
     _flat_bevel(style, "TCombobox", t.input_bg, border=t.border_subtle)
     style.map(
         "TCombobox",
-        fieldbackground=[("readonly", t.input_bg)],
+        fieldbackground=[("readonly", t.input_bg), ("disabled", t.surface)],
         selectbackground=[("readonly", t.select_bg)],
         selectforeground=[("readonly", t.fg)],
+        foreground=[("disabled", t.fg_muted)],
     )
 
     # Check / radio
-    style.configure("TCheckbutton", background=t.bg, foreground=t.fg, font=_UI_FONT, focuscolor=t.bg)
+    style.configure("TCheckbutton", background=t.bg, foreground=t.fg, font=ui_font(), focuscolor=t.bg)
     _flat_bevel(style, "TCheckbutton", t.bg)
-    style.configure("TRadiobutton", background=t.bg, foreground=t.fg, font=_UI_FONT, focuscolor=t.bg)
+    style.configure("TRadiobutton", background=t.bg, foreground=t.fg, font=ui_font(), focuscolor=t.bg)
     _flat_bevel(style, "TRadiobutton", t.bg)
     style.map(
         "TCheckbutton",
@@ -231,21 +248,21 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         focuscolor=[("focus", t.bg)],
     )
 
-    # Buttons — flat, no white bevel
+    # Buttons
     style.configure(
         "TButton",
         background=t.surface_raised,
         foreground=t.fg,
-        borderwidth=0,
+        borderwidth=1,
         relief=tk.FLAT,
         padding=(10, 6),
-        font=_UI_FONT,
+        font=ui_font(),
         focuscolor=t.bg,
     )
     _flat_bevel(style, "TButton", t.surface_raised, border=t.border)
     style.map(
         "TButton",
-        background=[("active", t.border), ("pressed", t.input_bg)],
+        background=[("active", t.border), ("pressed", t.input_bg), ("disabled", t.surface)],
         foreground=[("disabled", t.fg_muted)],
         focuscolor=[("focus", t.bg)],
     )
@@ -257,13 +274,13 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         borderwidth=0,
         relief=tk.FLAT,
         padding=(12, 7),
-        font=("Segoe UI", 10, "bold"),
+        font=ui_font(10, bold=True),
         focuscolor=t.bg,
     )
     _flat_bevel(style, "Primary.TButton", t.accent, border=t.accent)
     style.map(
         "Primary.TButton",
-        background=[("active", t.accent_hover), ("pressed", t.accent_hover)],
+        background=[("active", t.accent_hover), ("pressed", t.accent_hover), ("disabled", t.surface)],
         foreground=[("disabled", t.fg_muted)],
     )
 
@@ -277,9 +294,9 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         focuscolor=t.bg,
     )
     _flat_bevel(style, "Danger.TButton", "#3a2528", border="#5a3035")
-    style.map("Danger.TButton", background=[("active", "#4a3035")])
+    style.map("Danger.TButton", background=[("active", "#4a3035"), ("disabled", t.surface)])
 
-    # Notebook — no outer border
+    # Notebook
     style.configure("TNotebook", background=t.bg, borderwidth=0, tabmargins=[2, 6, 2, 0])
     _flat_bevel(style, "TNotebook", t.bg)
     style.configure(
@@ -287,7 +304,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         background=t.surface,
         foreground=t.fg_muted,
         padding=[14, 7],
-        font=_UI_FONT,
+        font=ui_font(),
         borderwidth=0,
     )
     _flat_bevel(style, "TNotebook.Tab", t.surface)
@@ -298,7 +315,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         expand=[("selected", [1, 1, 1, 0])],
     )
 
-    # Treeview — flat, no grid lines
+    # Treeview
     style.configure(
         "Treeview",
         background=t.input_bg,
@@ -307,7 +324,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         borderwidth=0,
         relief=tk.FLAT,
         rowheight=26,
-        font=_UI_FONT,
+        font=ui_font(),
     )
     _flat_bevel(style, "Treeview", t.input_bg)
     style.configure(
@@ -316,7 +333,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         foreground=t.fg,
         relief=tk.FLAT,
         borderwidth=0,
-        font=("Segoe UI", 10, "bold"),
+        font=ui_font(10, bold=True),
         padding=6,
     )
     _flat_bevel(style, "Treeview.Heading", t.surface_raised)
@@ -351,21 +368,24 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
         background=t.accent,
         troughcolor=t.surface,
         borderwidth=0,
+        lightcolor=t.surface,
+        darkcolor=t.surface,
         thickness=8,
     )
     _flat_bevel(style, "TProgressbar", t.surface)
 
-    # Paned window — dark sash, no bright divider
+    # Paned window
     style.configure("TPanedwindow", background=t.bg, borderwidth=0)
     _flat_bevel(style, "TPanedwindow", t.bg)
     style.configure("Sash", sashthickness=5, background=t.border_subtle, sashrelief=tk.FLAT)
     _flat_bevel(style, "Sash", t.border_subtle)
 
-    # tk default fonts
+    # tk named fonts — use resolved families, not missing Windows-only names
     try:
-        for name in ("TkDefaultFont", "TkTextFont", "TkFixedFont"):
-            tkfont.nametofont(name).configure(family="Segoe UI", size=10)
-        tkfont.nametofont("TkFixedFont").configure(family=_code_font()[0], size=10)
+        for name in ("TkDefaultFont", "TkTextFont"):
+            tkfont.nametofont(name).configure(family=_UI_FAMILY, size=10)
+        tkfont.nametofont("TkFixedFont").configure(family=_CODE_FAMILY, size=10)
+        tkfont.nametofont("TkMenuFont").configure(family=_UI_FAMILY, size=10)
     except tk.TclError:
         pass
 
@@ -373,7 +393,7 @@ def apply_dark_theme(root: tk.Misc) -> DarkTheme:
 
 
 def add_scrolled_text(parent: tk.Misc, *, theme: DarkTheme | None = None, **text_kw: Any) -> tk.Text:
-    """Text area with dark ttk scrollbars (avoids tk's light native scrollbar borders)."""
+    """Text area with dark ttk scrollbars."""
     t = theme or THEME
     frame = tk.Frame(parent, bg=t.code_bg, highlightthickness=0, borderwidth=0)
     text = tk.Text(frame, **text_kw)
@@ -403,7 +423,7 @@ def style_text_widget(text: tk.Text, theme: DarkTheme | None = None) -> None:
         highlightthickness=0,
         padx=8,
         pady=8,
-        font=_code_font(),
+        font=code_font(),
     )
 
 

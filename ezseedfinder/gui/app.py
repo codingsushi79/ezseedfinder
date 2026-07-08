@@ -96,6 +96,7 @@ PRESETS: tuple[tuple[str, str], ...] = (
 class SeedFinderApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        apply_dark_theme(self)
         self.title(f"EZ Seed Finder v{__version__}")
         self.minsize(1280, 900)
 

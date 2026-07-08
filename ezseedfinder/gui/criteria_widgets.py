@@ -34,8 +34,6 @@ MOB_TYPES = (
 TERRAIN_TYPES = ("flat", "mountainous", "oceanic")
 COMPARE_OPS = ("<=", ">=", "==", "<", ">")
 
-_UI_FONT = ("Segoe UI", 10)
-
 
 def apply_ui_fonts(root: tk.Misc) -> None:
     """Legacy hook — fonts are configured by apply_dark_theme."""
