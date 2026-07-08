@@ -22,11 +22,61 @@ from ..ezsf.ast import (
     TerrainRule,
 )
 from ..ezsf.parser import parse_ezsf
-from .criteria_widgets import set_ref
+from .criteria_widgets import resolve_ref, set_ref
 from .structure_registry import STRUCTURE_LOOT_TABLE, structure_kind
 
 
 FEATURE_KEYS = ("structures", "spawn", "biomes", "terrain", "loot")
+
+
+def _set_if_changed(var: Any, value: Any) -> bool:
+    if isinstance(value, bool):
+        if bool(var.get()) == value:
+            return False
+    elif str(var.get()) == str(value):
+        return False
+    var.set(value)
+    return True
+
+
+def _set_ref_if_changed(data: dict[str, Any], ref: str, ref_pos: tuple[int, int] | None) -> bool:
+    cur_ref, cur_pos = resolve_ref(data)
+    if cur_ref == ref and cur_pos == ref_pos:
+        return False
+    set_ref(data, ref, ref_pos)
+    return True
+
+
+def _target_enabled_structures(criteria: dict[str, Any]) -> set[str]:
+    names = {struct["name"] for struct in criteria.get("structures") or []}
+    if (criteria.get("ruined_portal") or {}).get("enabled"):
+        names.add("ruined_portal")
+    if (criteria.get("bastion") or {}).get("enabled"):
+        names.add("bastion")
+    return names
+
+
+def _set_chest_rows_if_changed(
+    app: Any,
+    struct_name: str,
+    items: list[tuple[str, int]],
+) -> None:
+    if struct_name not in app._struct_configs:
+        return
+    existing: list[tuple[str, int]] = []
+    for row in app._chest_rows.get(struct_name, []):
+        item = row["item"].get().strip()
+        if not item:
+            continue
+        try:
+            count = int(row["count"].get())
+        except ValueError:
+            count = 1
+        existing.append((item, count))
+    normalized = [(item, int(count)) for item, count in items]
+    if existing == normalized:
+        return
+    _set_chest_rows(app, struct_name, items)
 
 
 def _empty_criteria() -> dict[str, Any]:
@@ -362,180 +412,207 @@ def _set_chest_rows(app: Any, struct_name: str, items: list[tuple[str, int]]) ->
 
 
 def apply_criteria_to_gui(app: Any, criteria: dict[str, Any], features: set[str]) -> None:
+    tabs_dirty = False
+
     for key in FEATURE_KEYS:
-        app._feature_vars[key].set(key in features)
+        if _set_if_changed(app._feature_vars[key], key in features):
+            tabs_dirty = True
 
     if doc_version := criteria.get("version"):
-        app.version_var.set(doc_version)
+        _set_if_changed(app.version_var, doc_version)
 
-    app.threads_var.set(criteria.get("threads", "") or app.threads_var.get())
-    app.max_results_var.set(criteria.get("max_results", "") or app.max_results_var.get())
-    app.random_var.set(criteria.get("random_search", True))
-    app.seed_start_var.set(criteria.get("seed_start") or "")
-    app.seed_end_var.set(criteria.get("seed_end") or "")
+    _set_if_changed(app.threads_var, criteria.get("threads", "") or app.threads_var.get())
+    _set_if_changed(app.max_results_var, criteria.get("max_results", "") or app.max_results_var.get())
+    _set_if_changed(app.random_var, criteria.get("random_search", True))
+    _set_if_changed(app.seed_start_var, criteria.get("seed_start") or "")
+    _set_if_changed(app.seed_end_var, criteria.get("seed_end") or "")
 
-    for name in app._struct_enabled:
-        app._struct_enabled[name].set(False)
+    target_structs = _target_enabled_structures(criteria)
+    for name, var in app._struct_enabled.items():
+        want = name in target_structs
+        if var.get() != want:
+            if want:
+                app._ensure_struct_tab(name)
+            var.set(want)
+            tabs_dirty = True
 
     for struct in criteria.get("structures") or []:
         name = struct["name"]
         if name not in app._struct_configs:
             continue
-        app._struct_enabled[name].set(True)
         cfg = app._struct_configs[name]
-        set_ref(cfg["ref"], struct["ref"], struct.get("ref_pos"))
-        cfg["max_dist"].set(struct.get("max_dist", "0"))
-        cfg["viable"].set(struct.get("viable", True))
+        _set_ref_if_changed(cfg["ref"], struct["ref"], struct.get("ref_pos"))
+        _set_if_changed(cfg["max_dist"], struct.get("max_dist", "0"))
+        _set_if_changed(cfg["viable"], struct.get("viable", True))
         if name == "village" and "abandoned" in cfg and struct.get("abandoned"):
-            cfg["abandoned"].set(str(struct["abandoned"]))
+            _set_if_changed(cfg["abandoned"], str(struct["abandoned"]))
         if struct.get("chest_items"):
-            _set_chest_rows(app, name, struct["chest_items"])
+            _set_chest_rows_if_changed(app, name, struct["chest_items"])
 
     portal = criteria.get("ruined_portal") or {}
     if portal.get("enabled"):
         name = "ruined_portal"
-        app._struct_enabled[name].set(True)
-        cfg = app._struct_configs[name]
-        cfg["dimension_var"].set(portal.get("dimension", "overworld"))
-        set_ref(cfg["ref"], portal.get("ref", "spawn"), portal.get("ref_pos"))
-        cfg["max_dist"].set(portal.get("max_dist", "500"))
-        cfg["viable"].set(portal.get("viable", True))
-        cfg["giant"].set(
-            "" if portal.get("giant") is None else ("true" if portal["giant"] else "false")
-        )
-        cfg["template"].set(
-            "" if portal.get("template") is None else str(portal["template"])
-        )
-        cfg["underground"].set(
-            ""
-            if portal.get("underground") is None
-            else ("true" if portal["underground"] else "false")
-        )
-        cfg["airpocket"].set(
-            ""
-            if portal.get("airpocket") is None
-            else ("true" if portal["airpocket"] else "false")
-        )
-        cfg["top_missing"].set(portal.get("top_missing", ""))
-        cfg["frame_missing"].set(portal.get("frame_missing", ""))
-        _set_chest_rows(app, name, portal.get("chest_items") or [])
+        if name in app._struct_configs:
+            cfg = app._struct_configs[name]
+            _set_if_changed(cfg["dimension_var"], portal.get("dimension", "overworld"))
+            _set_ref_if_changed(cfg["ref"], portal.get("ref", "spawn"), portal.get("ref_pos"))
+            _set_if_changed(cfg["max_dist"], portal.get("max_dist", "500"))
+            _set_if_changed(cfg["viable"], portal.get("viable", True))
+            _set_if_changed(
+                cfg["giant"],
+                "" if portal.get("giant") is None else ("true" if portal["giant"] else "false"),
+            )
+            _set_if_changed(
+                cfg["template"],
+                "" if portal.get("template") is None else str(portal["template"]),
+            )
+            _set_if_changed(
+                cfg["underground"],
+                ""
+                if portal.get("underground") is None
+                else ("true" if portal["underground"] else "false"),
+            )
+            _set_if_changed(
+                cfg["airpocket"],
+                ""
+                if portal.get("airpocket") is None
+                else ("true" if portal["airpocket"] else "false"),
+            )
+            _set_if_changed(cfg["top_missing"], portal.get("top_missing", ""))
+            _set_if_changed(cfg["frame_missing"], portal.get("frame_missing", ""))
+            _set_chest_rows_if_changed(app, name, portal.get("chest_items") or [])
 
     bastion = criteria.get("bastion") or {}
-    if bastion.get("enabled"):
-        name = "bastion"
-        app._struct_enabled[name].set(True)
-        cfg = app._struct_configs[name]
-        cfg["variant"].set(bastion.get("variant", "treasure"))
-        set_ref(cfg["ref"], bastion.get("ref", "0,0"), bastion.get("ref_pos"))
-        cfg["max_dist"].set(bastion.get("max_dist", "600"))
-        cfg["viable"].set(bastion.get("viable", True))
+    if bastion.get("enabled") and "bastion" in app._struct_configs:
+        cfg = app._struct_configs["bastion"]
+        _set_if_changed(cfg["variant"], bastion.get("variant", "treasure"))
+        _set_ref_if_changed(cfg["ref"], bastion.get("ref", "0,0"), bastion.get("ref_pos"))
+        _set_if_changed(cfg["max_dist"], bastion.get("max_dist", "600"))
+        _set_if_changed(cfg["viable"], bastion.get("viable", True))
 
+    if "spawn" in features or (criteria.get("spawn") or {}).get("enabled"):
+        app._ensure_feature_tab("spawn")
     spawn = criteria.get("spawn") or {}
-    app.spawn_require_dist.set(spawn.get("enabled", False))
-    set_ref(app.spawn_ref, spawn.get("ref", "origin"), spawn.get("ref_pos"))
-    app.spawn_max_dist.set(spawn.get("max_dist", "0"))
-    app.spawn_biomes.set(spawn.get("biomes", ""))
+    if hasattr(app, "spawn_require_dist"):
+        _set_if_changed(app.spawn_require_dist, spawn.get("enabled", False))
+        _set_ref_if_changed(app.spawn_ref, spawn.get("ref", "origin"), spawn.get("ref_pos"))
+        _set_if_changed(app.spawn_max_dist, spawn.get("max_dist", "0"))
+        _set_if_changed(app.spawn_biomes, spawn.get("biomes", ""))
 
     sh = criteria.get("stronghold") or {}
-    app.stronghold_require.set(sh.get("enabled", False))
-    app.sh_nearest_enabled.set(sh.get("nearest_enabled", False))
-    set_ref(app.sh_nearest_ref, sh.get("nearest_ref", "spawn"), sh.get("nearest_ref_pos"))
-    app.sh_nearest_dist.set(sh.get("nearest_dist", "1500"))
-    app.sh_under_spawn.set(sh.get("under_spawn", False))
-    app.sh_full.set(sh.get("full", False))
-    if sh.get("ring") is not None:
-        app.sh_ring_enabled.set(True)
-        app.sh_ring.set(str(sh["ring"]))
-    else:
-        app.sh_ring_enabled.set(False)
-    if sh.get("max_angle") not in (None, ""):
-        app.sh_max_angle_enabled.set(True)
-        app.sh_max_angle.set(str(sh["max_angle"]))
-    else:
-        app.sh_max_angle_enabled.set(False)
+    if "spawn" in features or sh.get("enabled") or sh.get("nearest_enabled") or sh.get("under_spawn") or sh.get("full") or sh.get("ring") is not None:
+        app._ensure_feature_tab("spawn")
+    if hasattr(app, "stronghold_require"):
+        _set_if_changed(app.stronghold_require, sh.get("enabled", False))
+        _set_if_changed(app.sh_nearest_enabled, sh.get("nearest_enabled", False))
+        _set_ref_if_changed(app.sh_nearest_ref, sh.get("nearest_ref", "spawn"), sh.get("nearest_ref_pos"))
+        _set_if_changed(app.sh_nearest_dist, sh.get("nearest_dist", "1500"))
+        _set_if_changed(app.sh_under_spawn, sh.get("under_spawn", False))
+        _set_if_changed(app.sh_full, sh.get("full", False))
+        if sh.get("ring") is not None:
+            _set_if_changed(app.sh_ring_enabled, True)
+            _set_if_changed(app.sh_ring, str(sh["ring"]))
+        elif app.sh_ring_enabled.get():
+            _set_if_changed(app.sh_ring_enabled, False)
+        if sh.get("max_angle") not in (None, ""):
+            _set_if_changed(app.sh_max_angle_enabled, True)
+            _set_if_changed(app.sh_max_angle, str(sh["max_angle"]))
+        elif app.sh_max_angle_enabled.get():
+            _set_if_changed(app.sh_max_angle_enabled, False)
 
     biomes = criteria.get("biomes") or []
-    if biomes:
-        b = biomes[0]
-        app.biome_at_require.set(True)
-        app.biome_at_dim.set(b.get("dimension", "overworld"))
-        app.biome_at_x.set(b.get("x", "0"))
-        app.biome_at_y.set(b.get("y", "64"))
-        app.biome_at_z.set(b.get("z", "0"))
-        app.biome_at_names.set(b.get("names", ""))
-        app.biome_at_negate.set(b.get("negate", False))
-    else:
-        app.biome_at_require.set(False)
-
     regions = criteria.get("biome_regions") or []
-    if regions:
-        r = regions[0]
-        app.biome_region_require.set(True)
-        app.biome_region_dim.set(r.get("dimension", "overworld"))
-        app.biome_region_x1.set(r.get("x1", "-512"))
-        app.biome_region_z1.set(r.get("z1", "-512"))
-        app.biome_region_x2.set(r.get("x2", "512"))
-        app.biome_region_z2.set(r.get("z2", "512"))
-        app.biome_region_y.set(r.get("y", "64"))
-        app.biome_region_op.set(r.get("op", ">="))
-        app.biome_region_biome.set(r.get("biome", "desert"))
-        app.biome_region_pct.set(r.get("percent", "10"))
-    else:
-        app.biome_region_require.set(False)
+    if "biomes" in features or biomes or regions:
+        app._ensure_feature_tab("biomes")
+    if hasattr(app, "biome_at_require"):
+        if biomes:
+            b = biomes[0]
+            _set_if_changed(app.biome_at_require, True)
+            _set_if_changed(app.biome_at_dim, b.get("dimension", "overworld"))
+            _set_if_changed(app.biome_at_x, b.get("x", "0"))
+            _set_if_changed(app.biome_at_y, b.get("y", "64"))
+            _set_if_changed(app.biome_at_z, b.get("z", "0"))
+            _set_if_changed(app.biome_at_names, b.get("names", ""))
+            _set_if_changed(app.biome_at_negate, b.get("negate", False))
+        elif app.biome_at_require.get():
+            _set_if_changed(app.biome_at_require, False)
+
+    if hasattr(app, "biome_region_require"):
+        if regions:
+            r = regions[0]
+            _set_if_changed(app.biome_region_require, True)
+            _set_if_changed(app.biome_region_dim, r.get("dimension", "overworld"))
+            _set_if_changed(app.biome_region_x1, r.get("x1", "-512"))
+            _set_if_changed(app.biome_region_z1, r.get("z1", "-512"))
+            _set_if_changed(app.biome_region_x2, r.get("x2", "512"))
+            _set_if_changed(app.biome_region_z2, r.get("z2", "512"))
+            _set_if_changed(app.biome_region_y, r.get("y", "64"))
+            _set_if_changed(app.biome_region_op, r.get("op", ">="))
+            _set_if_changed(app.biome_region_biome, r.get("biome", "desert"))
+            _set_if_changed(app.biome_region_pct, r.get("percent", "10"))
+        elif app.biome_region_require.get():
+            _set_if_changed(app.biome_region_require, False)
 
     terrains = criteria.get("terrain") or []
-    if terrains:
-        t = terrains[0]
-        app.terrain_require.set(True)
-        app.terrain_dim.set(t.get("dimension", "overworld"))
-        app.terrain_x.set(t.get("x", "0"))
-        app.terrain_z.set(t.get("z", "0"))
-        app.terrain_radius.set(t.get("radius", "128"))
-        app.terrain_pred.set(t.get("predicate", "flat"))
-        app.terrain_negate.set(t.get("negate", False))
-    else:
-        app.terrain_require.set(False)
-
     heights = criteria.get("heights") or []
-    if heights:
-        h = heights[0]
-        app.height_require.set(True)
-        app.height_dim.set(h.get("dimension", "overworld"))
-        app.height_x.set(h.get("x", "0"))
-        app.height_z.set(h.get("z", "0"))
-        app.height_op.set(h.get("op", ">="))
-        app.height_value.set(h.get("value", "64"))
-    else:
-        app.height_require.set(False)
+    if "terrain" in features or terrains or heights:
+        app._ensure_feature_tab("terrain")
+    if hasattr(app, "terrain_require"):
+        if terrains:
+            t = terrains[0]
+            _set_if_changed(app.terrain_require, True)
+            _set_if_changed(app.terrain_dim, t.get("dimension", "overworld"))
+            _set_if_changed(app.terrain_x, t.get("x", "0"))
+            _set_if_changed(app.terrain_z, t.get("z", "0"))
+            _set_if_changed(app.terrain_radius, t.get("radius", "128"))
+            _set_if_changed(app.terrain_pred, t.get("predicate", "flat"))
+            _set_if_changed(app.terrain_negate, t.get("negate", False))
+        elif app.terrain_require.get():
+            _set_if_changed(app.terrain_require, False)
+
+    if hasattr(app, "height_require"):
+        if heights:
+            h = heights[0]
+            _set_if_changed(app.height_require, True)
+            _set_if_changed(app.height_dim, h.get("dimension", "overworld"))
+            _set_if_changed(app.height_x, h.get("x", "0"))
+            _set_if_changed(app.height_z, h.get("z", "0"))
+            _set_if_changed(app.height_op, h.get("op", ">="))
+            _set_if_changed(app.height_value, h.get("value", "64"))
+        elif app.height_require.get():
+            _set_if_changed(app.height_require, False)
 
     mobs = criteria.get("mobs") or []
-    if mobs:
+    if "loot" in features or mobs:
+        app._ensure_feature_tab("loot")
+    if hasattr(app, "mob_type") and mobs:
         mob = mobs[0]
-        app.mob_type.set(mob.get("mob", "witch"))
-        app.mob_dim.set(mob.get("dimension", "overworld"))
-        set_ref(app.mob_ref, mob.get("ref", "spawn"), mob.get("ref_pos"))
-        app.mob_dist.set(mob.get("max_dist", "200"))
-        app.mob_biomes.set(mob.get("biomes", ""))
+        _set_if_changed(app.mob_type, mob.get("mob", "witch"))
+        _set_if_changed(app.mob_dim, mob.get("dimension", "overworld"))
+        _set_ref_if_changed(app.mob_ref, mob.get("ref", "spawn"), mob.get("ref_pos"))
+        _set_if_changed(app.mob_dist, mob.get("max_dist", "200"))
+        _set_if_changed(app.mob_biomes, mob.get("biomes", ""))
 
     between = (criteria.get("structure_between") or [{}])[0]
-    app.struct_between_enabled.set(between.get("enabled", False))
+    _set_if_changed(app.struct_between_enabled, between.get("enabled", False))
     if between.get("enabled"):
-        app.struct_between_a.set(between.get("structure_a", "village"))
-        app.struct_between_b.set(between.get("structure_b", "ruined_portal"))
-        app.struct_between_dim.set(between.get("dimension", "overworld"))
-        set_ref(app.struct_between_ref, between.get("ref", "spawn"), between.get("ref_pos"))
-        app.struct_between_dist.set(between.get("max_dist", "800"))
+        _set_if_changed(app.struct_between_a, between.get("structure_a", "village"))
+        _set_if_changed(app.struct_between_b, between.get("structure_b", "ruined_portal"))
+        _set_if_changed(app.struct_between_dim, between.get("dimension", "overworld"))
+        _set_ref_if_changed(app.struct_between_ref, between.get("ref", "spawn"), between.get("ref_pos"))
+        _set_if_changed(app.struct_between_dist, between.get("max_dist", "800"))
 
     dist_rules = criteria.get("distance_rules") or []
     if dist_rules:
         dr = dist_rules[0]
-        app.dist_rule_enabled.set(True)
-        app.dist_rule_a.set(dr.get("a", "village"))
-        app.dist_rule_b.set(dr.get("b", "ruined_portal"))
-        app.dist_rule_op.set(dr.get("op", "<="))
-        app.dist_rule_value.set(dr.get("value", "200"))
-        app.dist_rule_dim.set(dr.get("dimension", "overworld"))
-    else:
-        app.dist_rule_enabled.set(False)
+        _set_if_changed(app.dist_rule_enabled, True)
+        _set_if_changed(app.dist_rule_a, dr.get("a", "village"))
+        _set_if_changed(app.dist_rule_b, dr.get("b", "ruined_portal"))
+        _set_if_changed(app.dist_rule_op, dr.get("op", "<="))
+        _set_if_changed(app.dist_rule_value, dr.get("value", "200"))
+        _set_if_changed(app.dist_rule_dim, dr.get("dimension", "overworld"))
+    elif app.dist_rule_enabled.get():
+        _set_if_changed(app.dist_rule_enabled, False)
 
-    app._refresh_tabs()
+    if tabs_dirty:
+        app._refresh_tabs()
