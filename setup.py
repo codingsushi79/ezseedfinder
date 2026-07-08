@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 
-from setuptools import Command, setup
+from setuptools import Command, Extension, setup
 from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.build import build
 
@@ -24,6 +24,21 @@ CUBIOMES_SOURCES = [
     f"{CUBIOMES_DIR}/biometree.c",
     f"{CUBIOMES_DIR}/biomenoise.c",
 ]
+
+LIB_CMODULE = f"{LIB_DIR}/lib_cmodule.c"
+
+
+def ext_modules() -> list[Extension]:
+    if sys.platform == "win32":
+        return []
+    return [
+        Extension(
+            "cubiomespi.lib_c",
+            sources=[*CUBIOMES_SOURCES, LIB_CMODULE],
+            include_dirs=[CUBIOMES_DIR],
+            libraries=[] if sys.platform == "darwin" else ["m"],
+        )
+    ]
 
 
 class build_cubiomes_lib(Command):
@@ -86,16 +101,25 @@ class build_cubiomes_lib(Command):
 
 
 class bdist_wheel_native(bdist_wheel):
+    def initialize_options(self) -> None:
+        super().initialize_options()
+        self.root_is_pure = False
+
     def finalize_options(self) -> None:
         super().finalize_options()
         self.root_is_pure = False
 
 
 class build_with_cubiomes(build):
-    sub_commands = build.sub_commands + [("build_cubiomes_lib", None)]
+    sub_commands = (
+        build.sub_commands + [("build_cubiomes_lib", None)]
+        if sys.platform == "win32"
+        else build.sub_commands
+    )
 
 
 setup(
+    ext_modules=ext_modules(),
     cmdclass={
         "build_cubiomes_lib": build_cubiomes_lib,
         "build": build_with_cubiomes,
