@@ -79,6 +79,9 @@ def build_ezsf(criteria: dict[str, Any], version: str = "26.2") -> str:
         ring = _int_or_none(stronghold.get("ring"))
         if ring is not None:
             parts += ["ring", str(ring)]
+        max_angle = stronghold.get("max_angle")
+        if max_angle not in (None, ""):
+            parts += ["max_angle", str(max_angle)]
         if len(parts) > 1:
             lines.append(" ".join(parts))
 
@@ -100,6 +103,9 @@ def build_ezsf(criteria: dict[str, Any], version: str = "26.2") -> str:
             line += " viable"
         if struct.get("not_viable"):
             line = line.replace(" viable", " not viable")
+        abandoned = _bool_token(struct.get("abandoned"))
+        if name == "village" and abandoned is not None:
+            line += f" abandoned {abandoned}"
         target = overworld if dim == "overworld" else nether if dim == "nether" else end
         target.append(line)
 

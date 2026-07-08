@@ -145,6 +145,7 @@ def document_to_criteria(doc: Document) -> tuple[dict[str, Any], set[str]]:
                 "under_spawn": stmt.under_player,
                 "full": stmt.full,
                 "ring": stmt.ring,
+                "max_angle": stmt.max_angle_deg,
             }
         elif isinstance(stmt, StructureRule):
             if stmt.structure in ("ruined_portal", "ruined_portal_n"):
@@ -160,6 +161,11 @@ def document_to_criteria(doc: Document) -> tuple[dict[str, Any], set[str]]:
                     "ref_pos": ref_pos,
                     "max_dist": str(stmt.max_dist),
                     "viable": stmt.viable,
+                    "abandoned": (
+                        "true" if stmt.village_abandoned else "false"
+                    )
+                    if stmt.structure == "village" and stmt.village_abandoned is not None
+                    else None,
                 }
             )
         elif isinstance(stmt, RuinedPortalRule):
@@ -380,6 +386,8 @@ def apply_criteria_to_gui(app: Any, criteria: dict[str, Any], features: set[str]
         set_ref(cfg["ref"], struct["ref"], struct.get("ref_pos"))
         cfg["max_dist"].set(struct.get("max_dist", "0"))
         cfg["viable"].set(struct.get("viable", True))
+        if name == "village" and "abandoned" in cfg and struct.get("abandoned"):
+            cfg["abandoned"].set(str(struct["abandoned"]))
         if struct.get("chest_items"):
             _set_chest_rows(app, name, struct["chest_items"])
 
@@ -440,6 +448,11 @@ def apply_criteria_to_gui(app: Any, criteria: dict[str, Any], features: set[str]
         app.sh_ring.set(str(sh["ring"]))
     else:
         app.sh_ring_enabled.set(False)
+    if sh.get("max_angle") not in (None, ""):
+        app.sh_max_angle_enabled.set(True)
+        app.sh_max_angle.set(str(sh["max_angle"]))
+    else:
+        app.sh_max_angle_enabled.set(False)
 
     biomes = criteria.get("biomes") or []
     if biomes:

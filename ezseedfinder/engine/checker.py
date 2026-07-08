@@ -25,7 +25,9 @@ from ..ezsf.ast import (
     StructureVariantRule,
     TerrainRule,
 )
+from .loot_positions import default_loot_table, loot_chest_coords
 from .loot_tables import get_loot_tables, roll_chest_loot
+from .verify import describe_statement
 from .variants import (
     get_bastion_info,
     get_structure_variant,
@@ -82,8 +84,18 @@ MOB_BIOME_HINTS: dict[str, list[str]] = {
     "guardian": ["ocean", "deep_ocean"],
     "elder_guardian": ["monument"],
     "drowned": ["river", "ocean"],
-    "pillager": ["outpost"],
-    "villager": ["plains", "desert", "savanna", "taiga", "snowy_taiga"],
+    "pillager": ["outpost", "plains", "desert", "savanna", "taiga", "snowy_taiga"],
+    "villager": ["plains", "desert", "savanna", "taiga", "snowy_taiga", "meadow"],
+    "zombie": ["plains", "forest", "desert", "swamp", "taiga"],
+    "skeleton": ["plains", "forest", "desert", "snowy_tundra", "taiga"],
+    "creeper": ["plains", "forest", "jungle", "taiga"],
+    "spider": ["forest", "plains", "swamp", "taiga"],
+    "magma_cube": ["nether_wastes", "hell", "basalt_deltas", "soul_sand_valley"],
+    "strider": ["nether_wastes", "hell", "crimson_forest", "warped_forest"],
+    "silverfish": ["stronghold", "extreme_hills", "windswept_hills"],
+    "phantom": ["plains", "forest", "desert", "ocean"],
+    "husk": ["desert"],
+    "stray": ["snowy_tundra", "snowy_plains", "ice_spikes"],
 }
 
 
@@ -110,6 +122,66 @@ class SeedChecker:
 
         details.update(self._base_details(ctx))
         return True, details
+
+    def check_detailed(self, seed: int) -> tuple[bool, dict[str, Any], list[dict[str, Any]]]:
+        """Return overall pass, details, and per-rule breakdown (for verify UI)."""
+        ctx = WorldContext(self.mc_version, seed)
+        details: dict[str, Any] = {}
+        rules: list[dict[str, Any]] = []
+
+        gui_ok = self._check_gui(ctx, details)
+        rules.append({"name": "GUI / quick filters", "ok": gui_ok, "kind": "gui"})
+        if not gui_ok:
+            return False, details, rules
+
+        for stmt in self.doc.statements:
+            if isinstance(stmt, DimensionBlock):
+                block_ok = True
+                for inner in stmt.statements:
+                    ok = self._eval_stmt(ctx, inner, details)
+                    rules.append(
+                        {
+                            "name": f"{describe_statement(inner)} ({stmt.dimension})",
+                            "ok": ok,
+                            "kind": "statement",
+                        }
+                    )
+                    block_ok = block_ok and ok
+                rules.append(
+                    {
+                        "name": describe_statement(stmt),
+                        "ok": block_ok,
+                        "kind": "dimension",
+                    }
+                )
+                if not block_ok:
+                    details.update(self._base_details(ctx))
+                    return False, details, rules
+            else:
+                ok = self._eval_stmt(ctx, stmt, details)
+                rules.append({"name": describe_statement(stmt), "ok": ok, "kind": "statement"})
+                if not ok:
+                    details.update(self._base_details(ctx))
+                    return False, details, rules
+
+        details.update(self._base_details(ctx))
+        return True, details, rules
+
+    def _roll_structure_loot(
+        self,
+        ctx: WorldContext,
+        dim: int,
+        struct_name: str,
+        pos: tuple[int, int],
+        table: str | None = None,
+    ):
+        table = table or default_loot_table(struct_name)
+        if not table or table not in get_loot_tables(self.version_str):
+            return None
+        lx, ly, lz = loot_chest_coords(
+            ctx, self.mc_version, dim, struct_name, pos[0], pos[1]
+        )
+        return roll_chest_loot(table, self.version_str, ctx.seed, lx, ly, lz)
 
     def _base_details(self, ctx: WorldContext) -> dict[str, Any]:
         sx, sz = ctx.spawn()
@@ -270,6 +342,12 @@ class SeedChecker:
             return False
         if rule.viable and not ctx.viable_structure(dim, struct, pos[0], pos[1]):
             return False
+        if rule.structure == "village" and rule.village_abandoned is not None:
+            biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
+            sv = get_structure_variant(struct, self.mc_version, ctx.seed, pos[0], pos[1], biome)
+            if sv is None or bool(sv.abandoned) != rule.village_abandoned:
+                return False
+            details["village_abandoned"] = sv.abandoned
         details[f"{rule.structure}_pos"] = pos
         details[f"{rule.structure}_dist"] = round(dist)
         return True
@@ -337,6 +415,20 @@ class SeedChecker:
             if idx >= len(strongholds):
                 return False
             details[f"stronghold_ring_{rule.ring}"] = strongholds[idx]
+
+        if rule.max_angle_deg is not None:
+            # Angular distance from +Z axis at spawn to nearest ring-1 stronghold.
+            ring1 = strongholds[:16]
+            if not ring1:
+                return False
+            nearest = min(ring1, key=lambda p: block_dist(sx, sz, p[0], p[1]))
+            dx = nearest[0] - sx
+            dz = nearest[1] - sz
+            angle = abs(math.degrees(math.atan2(dx, dz)))
+            if angle > rule.max_angle_deg:
+                return False
+            details["stronghold_angle_from_spawn"] = round(angle, 1)
+            details["stronghold_angle_target"] = nearest
 
         return True
 
@@ -482,6 +574,7 @@ class SeedChecker:
             return False
 
         biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
+        is_nether = dim == Dimension.DIM_NETHER
         portal = simulate_ruined_portal(
             self.mc_version,
             ctx.seed,
@@ -490,6 +583,7 @@ class SeedChecker:
             biome,
             game_version=self.version_str,
             roll_loot=bool(rule.chest_items),
+            nether=is_nether,
         )
         if portal is None:
             return False
@@ -537,6 +631,9 @@ class SeedChecker:
         pos = ctx.closest_structure(dim, struct, px, pz, limit)
         if pos is None:
             return False
+        dist = block_dist(px, pz, pos[0], pos[1])
+        if dist > rule.max_dist:
+            return False
 
         if struct_name in ("ruined_portal", "ruined_portal_n"):
             biome = ctx.biome_at(dim, pos[0], 64, pos[1]).value
@@ -547,6 +644,7 @@ class SeedChecker:
                 pos[1],
                 biome,
                 game_version=self.version_str,
+                nether=dim == Dimension.DIM_NETHER,
             )
             if portal is None or portal.loot is None:
                 return False
@@ -556,38 +654,27 @@ class SeedChecker:
             details["loot_structure_pos"] = pos
             return True
 
-        if struct_name in ("treasure", "buried_treasure"):
-            table = rule.loot_table or "buried_treasure"
-            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
-            if not loot.has(rule.item.lower(), rule.min_count):
+        if struct_name == "bastion":
+            info = get_bastion_info(self.mc_version, ctx.seed, pos[0], pos[1])
+            if info is None or info.variant != "treasure":
                 return False
-            details["loot_chest"] = dict(loot.items)
-            details["loot_structure_pos"] = pos
-            return True
-
-        if struct_name in ("shipwreck",):
-            table = rule.loot_table or "shipwreck_treasure"
-            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
-            if not loot.has(rule.item.lower(), rule.min_count):
-                return False
-            details["loot_chest"] = dict(loot.items)
-            details["loot_structure_pos"] = pos
-            return True
 
         if not ctx.viable_structure(dim, struct, pos[0], pos[1]):
             return False
-        table = rule.loot_table
-        if table and table in get_loot_tables(self.version_str):
-            loot = roll_chest_loot(table, self.version_str, ctx.seed, pos[0], 64, pos[1])
-            if not loot.has(rule.item.lower(), rule.min_count):
-                return False
-            details["loot_chest"] = dict(loot.items)
-            details["loot_structure_pos"] = pos
+
+        table = rule.loot_table or default_loot_table(struct_name)
+        loot = self._roll_structure_loot(ctx, dim, struct_name, pos, table)
+        if loot is None:
+            details["loot_note"] = (
+                f"Structure {struct_name} present; chest loot for '{rule.item}' "
+                "not simulated for this structure type yet"
+            )
             return True
-        details["loot_note"] = (
-            f"Structure {struct_name} present; chest loot for '{rule.item}' "
-            "not simulated for this structure type yet"
-        )
+        if not loot.has(rule.item.lower(), rule.min_count):
+            return False
+        details["loot_chest"] = dict(loot.items)
+        details["loot_structure_pos"] = pos
+        details["loot_table"] = table
         return True
 
     def _eval_mob(self, ctx: WorldContext, rule: MobRule, details: dict[str, Any]) -> bool:

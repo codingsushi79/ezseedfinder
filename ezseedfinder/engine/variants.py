@@ -158,10 +158,12 @@ def simulate_ruined_portal(
     z: int,
     biome_id: int,
     game_version: str = "1.16.1",
-    surface_y: int = 64,
+    surface_y: int | None = None,
     roll_loot: bool = True,
+    nether: bool = False,
 ) -> PortalFrameResult | None:
-    sv = get_structure_variant(RUINED_PORTAL, mc_version, seed, x, z, biome_id)
+    struct_id = RUINED_PORTAL_N if nether else RUINED_PORTAL
+    sv = get_structure_variant(struct_id, mc_version, seed, x, z, biome_id)
     if sv is None:
         return None
 
@@ -181,7 +183,12 @@ def simulate_ruined_portal(
     frame_y = max(p[1] for p in local_frame)
 
     place_x, place_z = x, z
-    place_y = surface_y
+    if surface_y is not None:
+        place_y = surface_y
+    elif sv.y != 0:
+        place_y = int(sv.y)
+    else:
+        place_y = 48 if nether else 64
 
     # Crying obsidian replacement (15% per obsidian, template block order)
     rng = JavaRandom(structure_processor_seed(seed, place_x, place_y, place_z))

@@ -11,11 +11,11 @@ Powered by [cubiomes](https://github.com/Cubitect/cubiomes) via a vendored [cubi
 - **Multi-threaded** — uses all CPU cores for fast random/sequential scanning
 - **Structures** — villages, temples, mansions, monuments, ruined portals, ancient cities, trial chambers, and more
 - **Dimensions** — overworld, nether, and end criteria in one search
-- **Strongholds** — nearest distance, under-spawn, ring selection, full stronghold (best-effort)
+- **Strongholds** — nearest distance, ring selection, max angle from spawn, under-spawn and full stronghold (heuristic — see Notes)
 - **Biomes** — point checks, region percentages, spawn biome
 - **Bastions** — variant filtering (treasure, housing, stables, bridge)
 - **Distance rules** — e.g. village and ruined portal within 200 blocks of each other
-- **Terrain / mobs / loot** — terrain heuristics, mob biome proxies, loot structure checks
+- **Terrain / mobs / loot** — terrain heuristics (experimental), mob biome proxies, version-aware chest loot
 
 ## Quick Start
 
@@ -66,6 +66,7 @@ stronghold nearest within 1500 of spawn
 stronghold under spawn
 stronghold full
 stronghold ring 1
+stronghold max_angle 90
 
 dimension overworld {
   biome at 0, 64, 0 plains | meadow
@@ -114,10 +115,14 @@ Bastions: `bastion variant treasure|housing|stables|bridge within 600 of spawn`
 
 ### Notes
 
-- **Full stronghold** — cubiomes does not simulate portal room layout; EZSF uses a ring-1 proximity heuristic.
-- **Chest loot** — ruined portal chests use the real 1.16.1 loot table (best-effort RNG). Other structures verify placement only.
-- **Ruined portal frame** — uses extracted vanilla structure templates; crying-obsidian replacement is simulated at ~15% per block.
-- **Mob rules** — use biome suitability as a proxy for spawn conditions.
+- **Full stronghold** — cubiomes does not simulate portal room layout; `stronghold full` uses a ring-1 proximity heuristic.
+- **Under spawn** — nearest stronghold within ~250 blocks of spawn (approximate).
+- **Stronghold angle** — `max_angle N` checks ring-1 stronghold angular distance from +Z at spawn (exact position from cubiomes).
+- **Chest loot** — version-aware vanilla loot tables for ruined portal, buried treasure, shipwreck, desert/jungle temple, bastion treasure, ancient city, and trail ruins (1.21+). Uses structure variant Y when cubiomes provides it.
+- **Ruined portal frame** — overworld and nether; extracted vanilla templates with crying-obsidian RNG.
+- **Terrain / height** — experimental biome-based proxies in the GUI; not true surface noise.
+- **Mob rules** — biome suitability proxy; expanded mob list in GUI.
+- **Seed map preview** — planned; see `ROADMAP.md`.
 
 ## Examples
 

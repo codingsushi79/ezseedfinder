@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
 
@@ -12,6 +13,7 @@ from ezseedfinder import __version__
 from ezseedfinder.paths import examples_dir
 
 from ..engine.finder import SeedFinder, load_ezsf_file
+from ..engine.checker import SeedChecker
 from ..engine.loot_tables import loot_data_version, loot_table_item_names
 from ..models.criteria import SearchConfig, SeedResult
 from .criteria_widgets import (
@@ -33,6 +35,7 @@ from .criteria_widgets import (
     structure_checkbox,
     toggle_block,
 )
+from .export_results import write_results
 from .ezsf_builder import build_ezsf
 from .ezsf_importer import FEATURE_KEYS, apply_criteria_to_gui, parse_ezsf_to_criteria
 from .structure_registry import (
@@ -82,6 +85,13 @@ FEATURE_LABELS = {
 
 STRUCTURE_NAMES = tuple(name for _label, name, _dim in STRUCTURE_FIELDS)
 
+PRESETS: tuple[tuple[str, str], ...] = (
+    ("1.16.1 Portal speedrun", "ruined_portal_speedrun.ezsf"),
+    ("1.16.1 Full speedrun", "speedrun.ezsf"),
+    ("Advanced multi-dim", "advanced.ezsf"),
+    ("Mushroom island", "mushroom_island.ezsf"),
+)
+
 
 class SeedFinderApp(tk.Tk):
     def __init__(self):
@@ -95,6 +105,8 @@ class SeedFinderApp(tk.Tk):
         self._gui_to_ezsf_after: str | None = None
         self._ezsf_to_gui_after: str | None = None
         self._chest_rows: dict[str, list[dict[str, Any]]] = {}
+        self._results: list[SeedResult] = []
+        self._paused = False
         self._struct_enabled: dict[str, tk.BooleanVar] = {}
         self._struct_configs: dict[str, dict[str, Any]] = {}
         self._struct_tab_hosts: dict[str, ttk.Frame] = {}
@@ -182,6 +194,8 @@ class SeedFinderApp(tk.Tk):
         bf.pack(fill=tk.X, pady=6)
         self.start_btn = ttk.Button(bf, text="▶  Start", command=self._start_search)
         self.start_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self.pause_btn = ttk.Button(bf, text="⏸  Pause", command=self._toggle_pause, state=tk.DISABLED)
+        self.pause_btn.pack(side=tk.LEFT, padx=(0, 4))
         self.stop_btn = ttk.Button(bf, text="■  Stop", command=self._stop_search, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT)
 
@@ -390,7 +404,15 @@ class SeedFinderApp(tk.Tk):
                     command=lambda n=name: self._add_chest_row(n),
                 ).pack(anchor=tk.W, pady=4)
                 self._chest_rows[name] = []
-                default_item = "heart_of_the_sea" if name == "treasure" else "gold_ingot"
+                default_items = {
+                    "treasure": "heart_of_the_sea",
+                    "shipwreck": "gold_ingot",
+                    "desert_pyramid": "diamond",
+                    "jungle_temple": "diamond",
+                    "ancient_city": "diamond",
+                    "trail_ruin": "iron_ingot",
+                }
+                default_item = default_items.get(name, "gold_ingot")
                 self._add_chest_row(name, default_item, "1")
                 continue
 
@@ -399,6 +421,8 @@ class SeedFinderApp(tk.Tk):
                 cfg["max_dist"] = dist_row(tab, default_dist(name))
                 cfg["viable"] = tk.BooleanVar(value=True)
                 ttk.Checkbutton(tab, text="Must be viable", variable=cfg["viable"]).pack(anchor=tk.W)
+                if name == "village":
+                    cfg["abandoned"] = labeled_combo(tab, "Abandoned village", ("", "false", "true"), "")
 
             self._struct_configs[name] = cfg
 
@@ -486,12 +510,26 @@ class SeedFinderApp(tk.Tk):
         ttk.Checkbutton(body, text="Under spawn (~250 blocks)", variable=self.sh_under_spawn).pack(
             anchor=tk.W
         )
-        ttk.Checkbutton(body, text="Full stronghold (ring-1 heuristic)", variable=self.sh_full).pack(
+        ttk.Checkbutton(body, text="Full stronghold (ring-1 heuristic, approximate)", variable=self.sh_full).pack(
             anchor=tk.W
         )
         self.sh_ring_enabled = tk.BooleanVar(value=False)
         ttk.Checkbutton(body, text="Specific ring", variable=self.sh_ring_enabled).pack(anchor=tk.W)
         self.sh_ring = labeled_entry(body, "Ring number", "1")
+        self.sh_max_angle_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="Max angle from spawn to ring-1 SH (degrees from +Z)",
+            variable=self.sh_max_angle_enabled,
+        ).pack(anchor=tk.W)
+        self.sh_max_angle = labeled_entry(body, "Max angle (degrees)", "90")
+        ttk.Label(
+            body,
+            text="Stronghold rules: ring/angle are exact from cubiomes; "
+            "'under spawn' and 'full' are heuristics (see README).",
+            font=("Segoe UI", 8),
+            wraplength=480,
+        ).pack(anchor=tk.W, pady=(4, 0))
 
     def _build_biomes_tab(self) -> None:
         tab = self._make_tab_host("biomes")
@@ -521,7 +559,13 @@ class SeedFinderApp(tk.Tk):
     def _build_terrain_tab(self) -> None:
         tab = self._make_tab_host("terrain")
 
-        body, self.terrain_require = toggle_block(tab, "Terrain predicate")
+        body, self.terrain_require = toggle_block(tab, "Terrain predicate (experimental)")
+        ttk.Label(
+            body,
+            text="Uses biome sampling as a terrain proxy — not true height/noise.",
+            font=("Segoe UI", 8),
+            foreground="#666",
+        ).pack(anchor=tk.W, pady=(0, 4))
         self.terrain_dim = labeled_combo(body, "Dimension", DIMENSIONS, "overworld")
         self.terrain_x = labeled_entry(body, "X", "0")
         self.terrain_z = labeled_entry(body, "Z", "0")
@@ -530,7 +574,13 @@ class SeedFinderApp(tk.Tk):
         self.terrain_negate = tk.BooleanVar(value=False)
         ttk.Checkbutton(body, text="Invert (not)", variable=self.terrain_negate).pack(anchor=tk.W)
 
-        body, self.height_require = toggle_block(tab, "Height at coordinates")
+        body, self.height_require = toggle_block(tab, "Height at coordinates (experimental)")
+        ttk.Label(
+            body,
+            text="Overworld/nether height is approximated (Y=64); end uses cubiomes surface.",
+            font=("Segoe UI", 8),
+            foreground="#666",
+        ).pack(anchor=tk.W, pady=(0, 4))
         self.height_dim = labeled_combo(body, "Dimension", DIMENSIONS, "overworld")
         self.height_x = labeled_entry(body, "X", "0")
         self.height_z = labeled_entry(body, "Z", "0")
@@ -557,6 +607,14 @@ class SeedFinderApp(tk.Tk):
         ttk.Checkbutton(sf, text="Random search", variable=self.random_var).pack(anchor=tk.W)
         self.seed_start_var = labeled_entry(sf, "Seed start (optional)", "")
         self.seed_end_var = labeled_entry(sf, "Seed end (optional)", "")
+
+        vf = ttk.LabelFrame(tab, text="Verify seed", padding=8)
+        vf.pack(fill=tk.X, pady=4)
+        vrow = ttk.Frame(vf)
+        vrow.pack(fill=tk.X)
+        self.verify_seed_var = tk.StringVar(value="")
+        ttk.Entry(vrow, textvariable=self.verify_seed_var, width=24).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(vrow, text="Check seed", command=self._verify_seed).pack(side=tk.LEFT)
 
         # Legacy quick filters still used by _check_gui for simple distance-only searches
         lf = ttk.LabelFrame(tab, text="Quick distance filters (legacy)", padding=8)
@@ -604,11 +662,16 @@ class SeedFinderApp(tk.Tk):
         toolbar.pack(fill=tk.X, pady=(0, 4))
         ttk.Button(toolbar, text="Load .ezsf", command=self._load_ezsf).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(toolbar, text="Save .ezsf", command=self._save_ezsf).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(toolbar, text="Load Example", command=self._load_example).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(toolbar, text="Speedrun 1.16.1", command=self._load_speedrun_example).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ttk.Button(toolbar, text="Ruined Portal", command=self._load_ruined_portal_example).pack(side=tk.LEFT)
+        preset_names = [label for label, _file in PRESETS]
+        self.preset_var = tk.StringVar(value=preset_names[0] if preset_names else "")
+        ttk.Combobox(
+            toolbar,
+            textvariable=self.preset_var,
+            values=preset_names,
+            state="readonly",
+            width=22,
+        ).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(toolbar, text="Load preset", command=self._load_preset).pack(side=tk.LEFT)
 
         self.ezsf_text = scrolledtext.ScrolledText(
             ef, wrap=tk.NONE, font=("Consolas", 10), height=14, undo=True
@@ -618,21 +681,43 @@ class SeedFinderApp(tk.Tk):
         rf = ttk.LabelFrame(parent, text="Results", padding=6)
         rf.pack(fill=tk.BOTH, expand=True)
 
-        cols = ("seed", "spawn", "details")
-        self.results_tree = ttk.Treeview(rf, columns=cols, show="headings", height=8)
+        rtoolbar = ttk.Frame(rf)
+        rtoolbar.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(rtoolbar, text="Export TXT", command=lambda: self._export_results("txt")).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        ttk.Button(rtoolbar, text="Export JSON", command=lambda: self._export_results("json")).pack(
+            side=tk.LEFT
+        )
+
+        rsplit = ttk.PanedWindow(rf, orient=tk.VERTICAL)
+        rsplit.pack(fill=tk.BOTH, expand=True)
+
+        tree_frame = ttk.Frame(rsplit)
+        cols = ("seed", "spawn", "summary")
+        self.results_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=6)
         self.results_tree.heading("seed", text="Seed")
         self.results_tree.heading("spawn", text="Spawn")
-        self.results_tree.heading("details", text="Details")
-        self.results_tree.column("seed", width=200)
-        self.results_tree.column("spawn", width=130)
-        self.results_tree.column("details", width=520)
-        rsb = ttk.Scrollbar(rf, orient=tk.VERTICAL, command=self.results_tree.yview)
+        self.results_tree.heading("summary", text="Summary")
+        self.results_tree.column("seed", width=180)
+        self.results_tree.column("spawn", width=120)
+        self.results_tree.column("summary", width=420)
+        rsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.results_tree.yview)
         self.results_tree.configure(yscrollcommand=rsb.set)
         self.results_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         rsb.pack(side=tk.RIGHT, fill=tk.Y)
+        rsplit.add(tree_frame, weight=2)
 
+        detail_frame = ttk.LabelFrame(rsplit, text="Result details", padding=4)
+        self.result_detail_text = scrolledtext.ScrolledText(
+            detail_frame, wrap=tk.WORD, font=("Consolas", 9), height=8, state=tk.DISABLED
+        )
+        self.result_detail_text.pack(fill=tk.BOTH, expand=True)
+        rsplit.add(detail_frame, weight=1)
+
+        self.results_tree.bind("<<TreeviewSelect>>", self._on_result_select)
         self.results_tree.bind("<Double-1>", self._copy_seed)
-        ttk.Label(rf, text="Double-click a seed to copy").pack(anchor=tk.W)
+        ttk.Label(rf, text="Select a row for details; double-click to copy seed").pack(anchor=tk.W)
 
     def _build_status_bar(self) -> None:
         bar = ttk.Frame(self, padding=(8, 4))
@@ -687,6 +772,8 @@ class SeedFinderApp(tk.Tk):
         self._trace_gui_sync(self.sh_full)
         self._trace_gui_sync(self.sh_ring_enabled)
         self._trace_gui_sync(self.sh_ring)
+        self._trace_gui_sync(self.sh_max_angle_enabled)
+        self._trace_gui_sync(self.sh_max_angle)
 
         self._trace_gui_sync(self.biome_at_require)
         self._trace_gui_sync(self.biome_at_dim)
@@ -905,17 +992,20 @@ class SeedFinderApp(tk.Tk):
                         }
                     )
             else:
-                structures.append(
-                    {
-                        "enabled": True,
-                        "name": name,
-                        "dimension": dim,
-                        "ref": ref,
-                        "ref_pos": ref_pos,
-                        "max_dist": cfg["max_dist"].get(),
-                        "viable": cfg["viable"].get(),
-                    }
-                )
+                entry = {
+                    "enabled": True,
+                    "name": name,
+                    "dimension": dim,
+                    "ref": ref,
+                    "ref_pos": ref_pos,
+                    "max_dist": cfg["max_dist"].get(),
+                    "viable": cfg["viable"].get(),
+                }
+                if name == "village" and "abandoned" in cfg:
+                    abandoned = cfg["abandoned"].get().strip()
+                    if abandoned:
+                        entry["abandoned"] = abandoned
+                structures.append(entry)
 
         s_ref, s_ref_pos = resolve_ref(self.spawn_ref)
         sh_ref, sh_ref_pos = resolve_ref(self.sh_nearest_ref)
@@ -943,6 +1033,7 @@ class SeedFinderApp(tk.Tk):
                 "under_spawn": self.sh_under_spawn.get(),
                 "full": self.sh_full.get(),
                 "ring": self.sh_ring.get() if self.sh_ring_enabled.get() else None,
+                "max_angle": self.sh_max_angle.get() if self.sh_max_angle_enabled.get() else None,
             },
             "structures": structures,
             "ruined_portal": ruined_portal,
@@ -1043,25 +1134,29 @@ class SeedFinderApp(tk.Tk):
             self._syncing = False
         self._debounced_ezsf_to_gui()
 
+    def _load_preset(self) -> None:
+        label = self.preset_var.get()
+        for preset_label, filename in PRESETS:
+            if preset_label == label:
+                path = examples_dir() / filename
+                if path.is_file():
+                    with open(path, encoding="utf-8") as f:
+                        self._set_ezsf_content(f.read())
+                    self.status_var.set(f"Loaded preset: {preset_label}")
+                else:
+                    messagebox.showwarning("Preset", f"Not found: {path}")
+                return
+
+    def _load_example(self) -> None:
+        self._load_preset()
+
     def _load_ruined_portal_example(self) -> None:
-        path = examples_dir() / "ruined_portal_speedrun.ezsf"
-        if path.is_file():
-            with open(path, encoding="utf-8") as f:
-                content = f.read()
-            self._set_ezsf_content(content)
-            self.status_var.set("Loaded ruined portal speedrun preset")
-        else:
-            messagebox.showwarning("Example", "ruined_portal_speedrun.ezsf not found.")
+        self.preset_var.set(PRESETS[0][0])
+        self._load_preset()
 
     def _load_speedrun_example(self) -> None:
-        path = examples_dir() / "speedrun.ezsf"
-        if path.is_file():
-            with open(path, encoding="utf-8") as f:
-                content = f.read()
-        else:
-            content = self._speedrun_ezsf_text()
-        self._set_ezsf_content(content)
-        self.status_var.set("Loaded 1.16.1 speedrun preset")
+        self.preset_var.set(PRESETS[1][0])
+        self._load_preset()
 
     def _speedrun_ezsf_text(self) -> str:
         return """# 1.16.1 speedrun seed — village, portal, stronghold, nether
@@ -1085,16 +1180,6 @@ dimension nether {
   structure fortress within 600 of 0,0 viable
 }
 """
-
-    def _load_example(self) -> None:
-        example = """# Example .ezsf criteria — edit here or use the GUI tabs
-version 26.2
-max_results 5
-threads 8
-"""
-        if messagebox.askyesno("Load Example", "Replace current .ezsf text with example?"):
-            self._set_ezsf_content(example)
-            self.status_var.set("Loaded example .ezsf")
 
     def _load_ezsf(self) -> None:
         path = filedialog.askopenfilename(
@@ -1173,11 +1258,15 @@ threads 8
 
         for item in self.results_tree.get_children():
             self.results_tree.delete(item)
+        self._results = []
+        self._clear_result_details()
+        self._paused = False
 
         config = self._build_config()
         self._finder = SeedFinder(config)
 
         self.start_btn.configure(state=tk.DISABLED)
+        self.pause_btn.configure(state=tk.NORMAL, text="⏸  Pause")
         self.stop_btn.configure(state=tk.NORMAL)
         self.progress.start(12)
         self.status_var.set("Searching...")
@@ -1198,6 +1287,19 @@ threads 8
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
 
+    def _toggle_pause(self) -> None:
+        if not self._finder:
+            return
+        self._paused = not self._paused
+        if self._paused:
+            self._finder.pause()
+            self.pause_btn.configure(text="▶  Resume")
+            self.status_var.set("Paused")
+        else:
+            self._finder.resume()
+            self.pause_btn.configure(text="⏸  Pause")
+            self.status_var.set("Searching...")
+
     def _stop_search(self) -> None:
         if self._finder:
             self._finder.stop()
@@ -1205,12 +1307,40 @@ threads 8
     def _search_finished(self) -> None:
         self.progress.stop()
         self.start_btn.configure(state=tk.NORMAL)
+        self.pause_btn.configure(state=tk.DISABLED, text="⏸  Pause")
         self.stop_btn.configure(state=tk.DISABLED)
-        count = len(self._finder.results) if self._finder else 0
+        self._paused = False
+        count = len(self._results)
         rate = self._finder.rate if self._finder else 0
         self.status_var.set(f"Done — found {count} seed(s) @ {rate:,.0f} seeds/s")
 
+    def _format_details(self, details: dict[str, Any]) -> str:
+        lines: list[str] = []
+        for key in sorted(details):
+            lines.append(f"{key}: {details[key]}")
+        return "\n".join(lines)
+
+    def _clear_result_details(self) -> None:
+        self.result_detail_text.configure(state=tk.NORMAL)
+        self.result_detail_text.delete("1.0", tk.END)
+        self.result_detail_text.configure(state=tk.DISABLED)
+
+    def _on_result_select(self, _event: object = None) -> None:
+        sel = self.results_tree.selection()
+        if not sel:
+            return
+        idx = self.results_tree.index(sel[0])
+        if idx < 0 or idx >= len(self._results):
+            return
+        result = self._results[idx]
+        text = self._format_details(result.details)
+        self.result_detail_text.configure(state=tk.NORMAL)
+        self.result_detail_text.delete("1.0", tk.END)
+        self.result_detail_text.insert("1.0", f"Seed: {result.seed}\n\n{text}")
+        self.result_detail_text.configure(state=tk.DISABLED)
+
     def _add_result(self, result: SeedResult) -> None:
+        self._results.append(result)
         spawn = result.details.get("spawn", ("?", "?"))
         spawn_str = f"{spawn[0]}, {spawn[1]}"
         detail_parts = []
@@ -1218,8 +1348,60 @@ threads 8
             if k == "spawn":
                 continue
             detail_parts.append(f"{k}={v}")
-        details = "; ".join(detail_parts[:6])
-        self.results_tree.insert("", tk.END, values=(result.seed, spawn_str, details))
+        summary = "; ".join(detail_parts[:4])
+        if len(detail_parts) > 4:
+            summary += " …"
+        self.results_tree.insert("", tk.END, values=(result.seed, spawn_str, summary))
+        if len(self._results) == 1:
+            self.results_tree.selection_set(self.results_tree.get_children()[0])
+            self._on_result_select()
+
+    def _export_results(self, fmt: str) -> None:
+        if not self._results:
+            messagebox.showinfo("Export", "No results to export.")
+            return
+        ext = "json" if fmt == "json" else "txt"
+        path = filedialog.asksaveasfilename(
+            defaultextension=f".{ext}",
+            filetypes=[(ext.upper(), f"*.{ext}")],
+        )
+        if not path:
+            return
+        write_results(Path(path), self._results, fmt)
+        self.status_var.set(f"Exported {len(self._results)} seed(s) to {os.path.basename(path)}")
+
+    def _verify_seed(self) -> None:
+        raw = self.verify_seed_var.get().strip()
+        if not raw:
+            messagebox.showinfo("Verify seed", "Enter a seed to check.")
+            return
+        try:
+            seed = int(raw)
+        except ValueError:
+            messagebox.showerror("Verify seed", "Invalid seed — use an integer.")
+            return
+        config = self._build_config()
+        checker = SeedChecker(
+            doc=config.criteria_ast,
+            gui_filters=config.gui_filters,
+        )
+        try:
+            ok, details, rules = checker.check_detailed(seed)
+        except Exception as exc:
+            messagebox.showerror("Verify seed", str(exc))
+            return
+        lines = [f"Seed {seed}: {'PASS' if ok else 'FAIL'}", ""]
+        for rule in rules:
+            mark = "✓" if rule["ok"] else "✗"
+            lines.append(f"  {mark} {rule['name']}")
+        lines.append("")
+        lines.append("Details:")
+        lines.append(self._format_details(details))
+        self.result_detail_text.configure(state=tk.NORMAL)
+        self.result_detail_text.delete("1.0", tk.END)
+        self.result_detail_text.insert("1.0", "\n".join(lines))
+        self.result_detail_text.configure(state=tk.DISABLED)
+        self.status_var.set(f"Verify {seed}: {'pass' if ok else 'fail'}")
 
     def _copy_seed(self, _event=None) -> None:
         sel = self.results_tree.selection()

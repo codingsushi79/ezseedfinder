@@ -275,6 +275,7 @@ class Parser:
         ref, ref_pos = self._parse_point_ref()
         viable = True
         count_min = 1
+        village_abandoned: bool | None = None
         while self._peek().type == TokenType.IDENT:
             mod = self._peek().value.lower()
             if mod == "viable":
@@ -288,9 +289,14 @@ class Parser:
                 self._advance()
                 self._expect_ident("min")
                 count_min = self._parse_number()
+            elif mod == "abandoned":
+                self._advance()
+                village_abandoned = self._parse_bool_value()
             else:
                 break
-        return StructureRule(dim, structure, ref, ref_pos, max_dist, viable, count_min)
+        return StructureRule(
+            dim, structure, ref, ref_pos, max_dist, viable, count_min, village_abandoned
+        )
 
     def _peek_ahead_ident(self, value: str) -> bool:
         return self.pos + 1 < len(self.tokens) and self.tokens[self.pos + 1].value.lower() == value
@@ -442,6 +448,9 @@ class Parser:
             elif kw == "ring":
                 self._advance()
                 rule.ring = self._parse_number()
+            elif kw == "max_angle":
+                self._advance()
+                rule.max_angle_deg = float(self._parse_number())
             elif kw == "count":
                 self._advance()
                 rule.count = self._parse_number()

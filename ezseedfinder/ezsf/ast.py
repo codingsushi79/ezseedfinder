@@ -55,6 +55,7 @@ class StructureRule:
     max_dist: int
     viable: bool = True
     count_min: int = 1
+    village_abandoned: bool | None = None
 
 
 @dataclass
@@ -77,6 +78,7 @@ class StrongholdRule:
     under_player: bool = False
     full: bool = False
     ring: int | None = None
+    max_angle_deg: float | None = None
 
 
 @dataclass

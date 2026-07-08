@@ -27,7 +27,11 @@ DEFAULT_LOOT_ITEMS = (
     "tnt",
 )
 LOOT_ITEMS = DEFAULT_LOOT_ITEMS
-MOB_TYPES = ("witch", "slime", "magma_cube", "ghast", "blaze", "enderman", "piglin")
+MOB_TYPES = (
+    "witch", "slime", "magma_cube", "ghast", "blaze", "enderman", "piglin",
+    "zombie", "skeleton", "creeper", "spider", "pillager", "villager",
+    "husk", "stray", "phantom", "drowned", "guardian", "shulker", "strider",
+)
 TERRAIN_TYPES = ("flat", "mountainous", "oceanic")
 COMPARE_OPS = ("<=", ">=", "==", "<", ">")
 

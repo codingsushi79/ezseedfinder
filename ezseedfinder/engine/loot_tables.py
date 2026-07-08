@@ -33,6 +33,26 @@ VANILLA_TABLE_FILES: dict[str, str] = {
     "ruined_portal": "chests/ruined_portal.json",
     "buried_treasure": "chests/buried_treasure.json",
     "shipwreck_treasure": "chests/shipwreck_treasure.json",
+    "desert_pyramid": "chests/desert_pyramid.json",
+    "jungle_temple": "chests/jungle_temple.json",
+    "bastion_treasure": "chests/bastion_treasure.json",
+    "ancient_city": "chests/ancient_city.json",
+    "trail_ruins": "archaeology/trail_ruins_common.json",
+}
+
+# Default loot table id when rolling chest loot for a structure name
+STRUCTURE_DEFAULT_LOOT_TABLE: dict[str, str] = {
+    "treasure": "buried_treasure",
+    "buried_treasure": "buried_treasure",
+    "shipwreck": "shipwreck_treasure",
+    "desert_pyramid": "desert_pyramid",
+    "jungle_temple": "jungle_temple",
+    "jungle_pyramid": "jungle_temple",
+    "bastion": "bastion_treasure",
+    "ancient_city": "ancient_city",
+    "trail_ruin": "trail_ruins",
+    "ruined_portal": "ruined_portal",
+    "ruined_portal_n": "ruined_portal",
 }
 
 
