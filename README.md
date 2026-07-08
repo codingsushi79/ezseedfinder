@@ -2,7 +2,7 @@
 
 Fast, GUI-based Minecraft Java Edition seed finder with an extensive `.ezsf` criteria language.
 
-Powered by [cubiomes](https://github.com/Cubitect/cubiomes) via [cubiomespi-fork](https://pypi.org/project/cubiomespi-fork/) for accurate structure and biome generation.
+Powered by [cubiomes](https://github.com/Cubitect/cubiomes) via a vendored [cubiomespi-fork](https://pypi.org/project/cubiomespi-fork/) build for accurate structure and biome generation.
 
 ## Features
 
@@ -30,6 +30,8 @@ ezsf --village 500 -n 10   # quick village filter
 
 **GUI requires tkinter.** On Debian/Ubuntu: `sudo apt install python3-tk`
 
+**Windows:** pip builds a native cubiomes library during install (requires [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the “Desktop development with C++” workload). If pip selects a wheel built for another OS, it falls back to the source package and compiles locally.
+
 ### Development
 
 ```bash
@@ -42,7 +44,7 @@ ezsf -f examples/speedrun.ezsf -n 5
 
 ## GUI Usage
 
-1. Pick a **Minecraft version** (1.12.2 – 1.21, default **1.16.1** for speedrun)
+1. Pick a **Minecraft version** (1.12.2 – 26.2, default **1.16.1** for speedrun)
 2. Set **structure distances** in blocks (0 = ignore)
 3. Enable **stronghold** options if needed
 4. Optionally edit the **`.ezsf`** panel for advanced criteria

@@ -36,6 +36,10 @@ VERSION_MAP: dict[str, MCVersion] = {
     "1.19.2": MCVersion.MC_1_19_2,
     "1.20": MCVersion.MC_1_20,
     "1.21": MCVersion.MC_1_21,
+    "26.1": MCVersion.MC_26_1,
+    "26.1.1": MCVersion.MC_26_1_1,
+    "26.1.2": MCVersion.MC_26_1_2,
+    "26.2": MCVersion.MC_26_2,
 }
 
 DIMENSION_MAP: dict[str, int] = {

@@ -4,5 +4,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-.pytest_cache/
+.tmp-deps/
+.tmp-cubiomes-sync/
+.tmp-cubiomes-262/
+.tmp-cubiomes-upstream/
 *.ezsf.bak

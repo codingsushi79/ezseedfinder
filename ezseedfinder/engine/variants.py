@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ctypes
-import glob
 import json
 import os
 from dataclasses import dataclass
@@ -71,11 +70,10 @@ _lib = None
 def _lib_c():
     global _lib
     if _lib is None:
-        import cubiomespi.cubiomes as cb
+        from cubiomespi._native import load_native_lib
 
-        script_dir = os.path.dirname(os.path.abspath(cb.__file__))
-        _lib = ctypes.CDLL(glob.glob(os.path.join(script_dir, "lib_c.*"))[0])
-        _lib.getVariant.argtypes = [
+        _lib = load_native_lib()
+        _lib.INTERFACE_getVariant.argtypes = [
             ctypes.POINTER(StructureVariantC),
             ctypes.c_int,
             ctypes.c_int,
@@ -84,7 +82,7 @@ def _lib_c():
             ctypes.c_int,
             ctypes.c_int,
         ]
-        _lib.getVariant.restype = ctypes.c_int
+        _lib.INTERFACE_getVariant.restype = ctypes.c_int
     return _lib
 
 
@@ -92,7 +90,7 @@ def get_structure_variant(
     struct_id: int, mc_version: int, seed: int, x: int, z: int, biome_id: int = -1
 ) -> StructureVariantC | None:
     sv = StructureVariantC()
-    ok = _lib_c().getVariant(
+    ok = _lib_c().INTERFACE_getVariant(
         ctypes.byref(sv),
         struct_id,
         mc_version,

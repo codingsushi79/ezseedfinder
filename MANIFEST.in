@@ -1,0 +1,3 @@
+include setup.py
+include cubiomespi/lib/*.c
+recursive-include cubiomespi/lib/cubiomes *.c *.h

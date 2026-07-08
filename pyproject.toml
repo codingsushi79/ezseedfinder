@@ -15,16 +15,16 @@ keywords = ["minecraft", "seed", "seed-finder", "cubiomes", "speedrun"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
-    "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Games/Entertainment",
 ]
-dependencies = [
-    "cubiomespi-fork>=1.1.1",
-]
+dependencies = []
 
 [project.scripts]
 ezsf = "ezseedfinder.__main__:main"
@@ -38,7 +38,13 @@ version = { attr = "ezseedfinder.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ezseedfinder*"]
+include = ["ezseedfinder*", "cubiomespi*"]
 
 [tool.setuptools.package-data]
 ezseedfinder = ["engine/*.json", "examples/*.ezsf"]
+cubiomespi = [
+    "lib/*.c",
+    "lib/cubiomes/*.c",
+    "lib/cubiomes/*.h",
+    "lib/cubiomes/tables/*.h",
+]

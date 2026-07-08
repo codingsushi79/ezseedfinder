@@ -1,4 +1,1 @@
-cubiomespi-fork>=1.1.1
-
-# Install package in editable mode for development:
-# pip install -e .
+# Native cubiomes sources are bundled with ezseedfinder (see setup.py).

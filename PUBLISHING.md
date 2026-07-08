@@ -34,7 +34,9 @@ Alternatively, add a repository secret `PYPI_API_TOKEN` and replace the publish 
 
 1. Bump `__version__` in `ezseedfinder/__init__.py`.
 2. Commit and push.
-3. Create a GitHub **Release** (or push a tag like `v0.1.0`) — the workflow builds and uploads to PyPI.
+3. Create a GitHub **Release** (or push a tag like `v0.1.1`) — the workflow builds and uploads to PyPI.
+
+Linux CI wheels include a compiled `lib.so`. Windows and macOS installs typically use the sdist and compile `lib.dll` / `lib.dylib` locally during `pip install`.
 
 To publish manually from a checkout:
 
