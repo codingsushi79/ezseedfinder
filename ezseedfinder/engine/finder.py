@@ -166,7 +166,7 @@ def load_ezsf_file(path: str) -> SearchConfig:
     doc = parse_ezsf(text)
     meta = document_to_config(doc)
     return SearchConfig(
-        version=meta.get("version") or "1.21",
+        version=meta.get("version") or "26.2",
         threads=meta.get("threads") or 0,
         max_results=meta.get("max_results") or 10,
         seed_start=meta.get("seed_start"),

@@ -44,7 +44,7 @@ ezsf -f examples/speedrun.ezsf -n 5
 
 ## GUI Usage
 
-1. Pick a **Minecraft version** (1.12.2 – 26.2, default **1.16.1** for speedrun)
+1. Pick a **Minecraft version** (1.12.2 – 26.2, default **26.2**)
 2. Set **structure distances** in blocks (0 = ignore)
 3. Enable **stronghold** options if needed
 4. Optionally edit the **`.ezsf`** panel for advanced criteria
@@ -53,7 +53,7 @@ ezsf -f examples/speedrun.ezsf -n 5
 ## `.ezsf` Syntax Reference
 
 ```ezsf
-version 1.21
+version 26.2
 threads 8
 max_results 10
 random                    # or: sequential

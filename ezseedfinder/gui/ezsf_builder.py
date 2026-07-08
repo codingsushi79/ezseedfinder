@@ -33,7 +33,7 @@ def _int_or_none(val: Any) -> int | None:
         return None
 
 
-def build_ezsf(criteria: dict[str, Any], version: str = "1.16.1") -> str:
+def build_ezsf(criteria: dict[str, Any], version: str = "26.2") -> str:
     lines: list[str] = []
 
     if criteria.get("emit_version", True):

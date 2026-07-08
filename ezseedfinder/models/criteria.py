@@ -22,7 +22,7 @@ class SeedResult:
 class SearchConfig:
     """Complete search configuration from GUI and/or .ezsf file."""
 
-    version: str = "1.21"
+    version: str = "26.2"
     threads: int = 0  # 0 = auto
     max_results: int = 10
     seed_start: int | None = None

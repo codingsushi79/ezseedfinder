@@ -15,7 +15,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         description="EZ Seed Finder — search Minecraft Java Edition seeds",
     )
     parser.add_argument("-f", "--file", help="Path to .ezsf criteria file")
-    parser.add_argument("-v", "--version", default="1.16.1", help="Minecraft version")
+    parser.add_argument("-v", "--version", default="26.2", help="Minecraft version")
     parser.add_argument("-n", "--max-results", type=int, default=5)
     parser.add_argument("-t", "--threads", type=int, default=0)
     parser.add_argument("--village", type=int, default=0, help="Village max distance from spawn")

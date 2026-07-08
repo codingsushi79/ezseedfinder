@@ -93,7 +93,7 @@ class SeedChecker:
     def __init__(self, doc: Document | None = None, gui_filters: dict[str, Any] | None = None):
         self.doc = doc or Document()
         self.gui_filters = gui_filters or {}
-        version = self.doc.version or self.gui_filters.get("version", "1.21")
+        version = self.doc.version or self.gui_filters.get("version", "26.2")
         self.mc_version = resolve_version(version)
 
     def check(self, seed: int) -> tuple[bool, dict[str, Any]]:

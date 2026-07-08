@@ -45,6 +45,7 @@ VERSIONS = [
     "26.1.2", "26.2",
 ]
 
+DEFAULT_VERSION = "26.2"
 SPEEDRUN_VERSION = "1.16.1"
 
 STRUCTURE_FIELDS = [
@@ -87,6 +88,9 @@ class SeedFinderApp(tk.Tk):
 
         self._finder: SeedFinder | None = None
         self._search_thread: threading.Thread | None = None
+        self._syncing = False
+        self._gui_to_ezsf_after: str | None = None
+        self._ezsf_to_gui_after: str | None = None
         self._chest_rows: dict[str, list[dict[str, Any]]] = {}
         self._struct_enabled: dict[str, tk.BooleanVar] = {}
         self._struct_configs: dict[str, dict[str, Any]] = {}
@@ -97,6 +101,7 @@ class SeedFinderApp(tk.Tk):
         }
 
         self._build_ui()
+        self._wire_ezsf_sync()
         self._apply_style()
         self._fit_window_to_content()
 
@@ -136,17 +141,10 @@ class SeedFinderApp(tk.Tk):
     def _build_left_panel(self, parent: ttk.Frame) -> None:
         vf = ttk.LabelFrame(parent, text="Minecraft Version", padding=8)
         vf.pack(fill=tk.X, pady=(0, 4))
-        self.version_var = tk.StringVar(value=SPEEDRUN_VERSION)
+        self.version_var = tk.StringVar(value=DEFAULT_VERSION)
         ttk.Combobox(vf, textvariable=self.version_var, values=VERSIONS, state="readonly").pack(
             fill=tk.X
         )
-
-        self.gui_criteria_enabled = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            parent,
-            text="Include GUI criteria in search",
-            variable=self.gui_criteria_enabled,
-        ).pack(anchor=tk.W, pady=(0, 4))
 
         ff = ttk.LabelFrame(parent, text="Features (show tabs)", padding=6)
         ff.pack(fill=tk.X, pady=(0, 4))
@@ -179,12 +177,6 @@ class SeedFinderApp(tk.Tk):
 
         bf = ttk.Frame(parent)
         bf.pack(fill=tk.X, pady=6)
-        ttk.Button(bf, text="Export GUI → .ezsf", command=self._export_gui_to_ezsf).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ttk.Button(bf, text="Preview GUI .ezsf", command=self._preview_gui_ezsf).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
         self.start_btn = ttk.Button(bf, text="▶  Start", command=self._start_search)
         self.start_btn.pack(side=tk.LEFT, padx=(0, 4))
         self.stop_btn = ttk.Button(bf, text="■  Stop", command=self._stop_search, state=tk.DISABLED)
@@ -410,11 +402,14 @@ class SeedFinderApp(tk.Tk):
         def remove() -> None:
             row["row"].destroy()
             self._chest_rows[struct_name].remove(row)
+            self._schedule_gui_to_ezsf()
 
         ttk.Button(row["row"], text="−", width=3, command=remove).pack(side=tk.RIGHT)
         row["item"].set(item)
         row["count"].set(count)
         self._chest_rows[struct_name].append(row)
+        self._trace_gui_sync(row["item"])
+        self._trace_gui_sync(row["count"])
 
     def _collect_chest_items(self, struct_name: str) -> list[tuple[str, int]]:
         items: list[tuple[str, int]] = []
@@ -561,28 +556,18 @@ class SeedFinderApp(tk.Tk):
 
         toolbar = ttk.Frame(ef)
         toolbar.pack(fill=tk.X, pady=(0, 4))
-        self.ezsf_enabled = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toolbar, text="Also use .ezsf text below", variable=self.ezsf_enabled).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
         ttk.Button(toolbar, text="Load .ezsf", command=self._load_ezsf).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(toolbar, text="Import → GUI", command=self._import_ezsf_to_gui).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
         ttk.Button(toolbar, text="Save .ezsf", command=self._save_ezsf).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(toolbar, text="Load Example", command=self._load_example).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(toolbar, text="Speedrun 1.16.1", command=self._load_speedrun_example).pack(
             side=tk.LEFT, padx=(0, 4)
         )
         ttk.Button(toolbar, text="Ruined Portal", command=self._load_ruined_portal_example).pack(side=tk.LEFT)
-        self.ezsf_enabled.trace_add("write", lambda *_: self._toggle_ezsf_editor())
 
         self.ezsf_text = scrolledtext.ScrolledText(
             ef, wrap=tk.NONE, font=("Consolas", 10), height=14, undo=True
         )
         self.ezsf_text.pack(fill=tk.BOTH, expand=True)
-        self._load_example(initial=True)
-        self._toggle_ezsf_editor()
 
         rf = ttk.LabelFrame(parent, text="Results", padding=6)
         rf.pack(fill=tk.BOTH, expand=True)
@@ -617,9 +602,187 @@ class SeedFinderApp(tk.Tk):
             return
         entry.configure(state="normal" if self.dist_enabled[key].get() else "disabled")
 
-    def _toggle_ezsf_editor(self) -> None:
-        state = "normal" if self.ezsf_enabled.get() else "disabled"
-        self.ezsf_text.configure(state=state)
+    def _trace_gui_sync(self, var: tk.Variable) -> None:
+        var.trace_add("write", self._schedule_gui_to_ezsf)
+
+    def _trace_ref_row(self, ref: dict[str, Any]) -> None:
+        self._trace_gui_sync(ref["ref"])
+        self._trace_gui_sync(ref["custom"])
+
+    def _trace_struct_config(self, cfg: dict[str, Any]) -> None:
+        for val in cfg.values():
+            if isinstance(val, tk.Variable):
+                self._trace_gui_sync(val)
+            elif isinstance(val, dict) and "ref" in val and "custom" in val:
+                self._trace_ref_row(val)
+
+    def _wire_ezsf_sync(self) -> None:
+        self._trace_gui_sync(self.version_var)
+        for var in self._feature_vars.values():
+            self._trace_gui_sync(var)
+        for var in self._struct_enabled.values():
+            self._trace_gui_sync(var)
+        for cfg in self._struct_configs.values():
+            self._trace_struct_config(cfg)
+        for rows in self._chest_rows.values():
+            for row in rows:
+                self._trace_gui_sync(row["item"])
+                self._trace_gui_sync(row["count"])
+
+        self._trace_ref_row(self.spawn_ref)
+        self._trace_gui_sync(self.spawn_max_dist)
+        self._trace_gui_sync(self.spawn_biomes)
+        self._trace_gui_sync(self.spawn_require_dist)
+        self._trace_gui_sync(self.stronghold_require)
+        self._trace_gui_sync(self.sh_nearest_enabled)
+        self._trace_ref_row(self.sh_nearest_ref)
+        self._trace_gui_sync(self.sh_nearest_dist)
+        self._trace_gui_sync(self.sh_under_spawn)
+        self._trace_gui_sync(self.sh_full)
+        self._trace_gui_sync(self.sh_ring_enabled)
+        self._trace_gui_sync(self.sh_ring)
+
+        self._trace_gui_sync(self.biome_at_require)
+        self._trace_gui_sync(self.biome_at_dim)
+        self._trace_gui_sync(self.biome_at_x)
+        self._trace_gui_sync(self.biome_at_y)
+        self._trace_gui_sync(self.biome_at_z)
+        self._trace_gui_sync(self.biome_at_names)
+        self._trace_gui_sync(self.biome_at_negate)
+        self._trace_gui_sync(self.biome_region_require)
+        self._trace_gui_sync(self.biome_region_dim)
+        self._trace_gui_sync(self.biome_region_x1)
+        self._trace_gui_sync(self.biome_region_z1)
+        self._trace_gui_sync(self.biome_region_x2)
+        self._trace_gui_sync(self.biome_region_z2)
+        self._trace_gui_sync(self.biome_region_y)
+        self._trace_gui_sync(self.biome_region_op)
+        self._trace_gui_sync(self.biome_region_biome)
+        self._trace_gui_sync(self.biome_region_pct)
+
+        self._trace_gui_sync(self.terrain_require)
+        self._trace_gui_sync(self.terrain_dim)
+        self._trace_gui_sync(self.terrain_x)
+        self._trace_gui_sync(self.terrain_z)
+        self._trace_gui_sync(self.terrain_radius)
+        self._trace_gui_sync(self.terrain_pred)
+        self._trace_gui_sync(self.terrain_negate)
+        self._trace_gui_sync(self.height_require)
+        self._trace_gui_sync(self.height_dim)
+        self._trace_gui_sync(self.height_x)
+        self._trace_gui_sync(self.height_z)
+        self._trace_gui_sync(self.height_op)
+        self._trace_gui_sync(self.height_value)
+
+        self._trace_gui_sync(self.mob_type)
+        self._trace_gui_sync(self.mob_dim)
+        self._trace_ref_row(self.mob_ref)
+        self._trace_gui_sync(self.mob_dist)
+        self._trace_gui_sync(self.mob_biomes)
+
+        self._trace_gui_sync(self.struct_between_enabled)
+        self._trace_gui_sync(self.struct_between_a)
+        self._trace_gui_sync(self.struct_between_b)
+        self._trace_gui_sync(self.struct_between_dim)
+        self._trace_ref_row(self.struct_between_ref)
+        self._trace_gui_sync(self.struct_between_dist)
+
+        self._trace_gui_sync(self.dist_rule_enabled)
+        self._trace_gui_sync(self.dist_rule_a)
+        self._trace_gui_sync(self.dist_rule_b)
+        self._trace_gui_sync(self.dist_rule_op)
+        self._trace_gui_sync(self.dist_rule_value)
+        self._trace_gui_sync(self.dist_rule_dim)
+
+        self._trace_gui_sync(self.max_results_var)
+        self._trace_gui_sync(self.threads_var)
+        self._trace_gui_sync(self.random_var)
+        self._trace_gui_sync(self.seed_start_var)
+        self._trace_gui_sync(self.seed_end_var)
+        for var in self.dist_vars.values():
+            self._trace_gui_sync(var)
+        for var in self.dist_enabled.values():
+            self._trace_gui_sync(var)
+        self._trace_gui_sync(self.stronghold_under)
+        self._trace_gui_sync(self.stronghold_full)
+        self._trace_gui_sync(self.spawn_dist_enabled)
+        self._trace_gui_sync(self.spawn_dist_var)
+        self._trace_gui_sync(self.spawn_biome_enabled)
+        self._trace_gui_sync(self.spawn_biome_var)
+
+        def on_ezsf_modified(_event: object = None) -> None:
+            if self._syncing:
+                return
+            if self.ezsf_text.edit_modified():
+                self.ezsf_text.edit_modified(False)
+                self._schedule_ezsf_to_gui()
+
+        self.ezsf_text.bind("<<Modified>>", on_ezsf_modified)
+        self.ezsf_text.bind("<FocusOut>", lambda _e: self._schedule_ezsf_to_gui())
+        self._sync_gui_to_ezsf()
+
+    def _ezsf_editor_focused(self) -> bool:
+        focus = self.focus_get()
+        widget: tk.Misc | None = focus
+        while widget is not None:
+            if widget == self.ezsf_text:
+                return True
+            widget = widget.master if hasattr(widget, "master") else None
+        return False
+
+    def _schedule_gui_to_ezsf(self, *_args: object) -> None:
+        if self._syncing or self._ezsf_editor_focused():
+            return
+        if self._gui_to_ezsf_after is not None:
+            self.after_cancel(self._gui_to_ezsf_after)
+        self._gui_to_ezsf_after = self.after(200, self._sync_gui_to_ezsf)
+
+    def _schedule_ezsf_to_gui(self) -> None:
+        if self._syncing:
+            return
+        if self._ezsf_to_gui_after is not None:
+            self.after_cancel(self._ezsf_to_gui_after)
+        self._ezsf_to_gui_after = self.after(400, self._debounced_ezsf_to_gui)
+
+    def _sync_gui_to_ezsf(self) -> None:
+        self._gui_to_ezsf_after = None
+        if self._syncing:
+            return
+        if self._ezsf_to_gui_after is not None:
+            self.after_cancel(self._ezsf_to_gui_after)
+            self._ezsf_to_gui_after = None
+        self._syncing = True
+        try:
+            criteria = self._collect_gui_criteria()
+            criteria["emit_version"] = True
+            text = build_ezsf(criteria, version=self.version_var.get())
+            self.ezsf_text.delete("1.0", tk.END)
+            self.ezsf_text.insert("1.0", text)
+            self.ezsf_text.edit_modified(False)
+        finally:
+            self._syncing = False
+
+    def _debounced_ezsf_to_gui(self) -> None:
+        self._ezsf_to_gui_after = None
+        if self._gui_to_ezsf_after is not None:
+            self.after_cancel(self._gui_to_ezsf_after)
+            self._gui_to_ezsf_after = None
+        text = self.ezsf_text.get("1.0", tk.END).strip()
+        if not text:
+            return
+        self._syncing = True
+        try:
+            criteria, features, doc = parse_ezsf_to_criteria(text)
+            if doc.version:
+                self.version_var.set(doc.version)
+            apply_criteria_to_gui(self, criteria, features)
+        except Exception:
+            pass
+        finally:
+            self._syncing = False
+
+    def _current_ezsf_text(self) -> str:
+        return self.ezsf_text.get("1.0", tk.END).strip()
 
     def _collect_gui_criteria(self) -> dict[str, Any]:
         structures: list[dict[str, Any]] = []
@@ -812,50 +975,21 @@ class SeedFinderApp(tk.Tk):
             ],
         }
 
-    def _merged_ezsf_text(self) -> str:
-        parts: list[str] = []
-        if self.gui_criteria_enabled.get():
-            gui_ezsf = build_ezsf(self._collect_gui_criteria(), version=self.version_var.get())
-            if gui_ezsf:
-                parts.append(gui_ezsf)
-        if self.ezsf_enabled.get():
-            user = self.ezsf_text.get("1.0", tk.END).strip()
-            if user:
-                parts.append(user)
-        return "\n\n".join(parts)
-
-    def _export_gui_to_ezsf(self) -> None:
-        text = build_ezsf(self._collect_gui_criteria(), version=self.version_var.get())
-        if not text:
-            messagebox.showinfo("Export", "No enabled GUI criteria to export.")
-            return
-        self.ezsf_enabled.set(True)
-        self._set_ezsf_content(text)
-        self.status_var.set("Exported GUI criteria to .ezsf editor")
-
-    def _import_ezsf_to_gui(self) -> None:
-        text = self.ezsf_text.get("1.0", tk.END).strip()
-        if not text:
-            messagebox.showinfo("Import", "No .ezsf text to import.")
-            return
+    def _set_ezsf_content(self, text: str) -> None:
+        if self._gui_to_ezsf_after is not None:
+            self.after_cancel(self._gui_to_ezsf_after)
+            self._gui_to_ezsf_after = None
+        if self._ezsf_to_gui_after is not None:
+            self.after_cancel(self._ezsf_to_gui_after)
+            self._ezsf_to_gui_after = None
+        self._syncing = True
         try:
-            criteria, features, doc = parse_ezsf_to_criteria(text)
-            if doc.version:
-                self.version_var.set(doc.version)
-            apply_criteria_to_gui(self, criteria, features)
-            self.gui_criteria_enabled.set(True)
-            self.status_var.set("Imported .ezsf into GUI fields")
-        except Exception as exc:
-            messagebox.showerror("Import Error", str(exc))
-
-    def _preview_gui_ezsf(self) -> None:
-        text = build_ezsf(self._collect_gui_criteria(), version=self.version_var.get())
-        if not text:
-            messagebox.showinfo("Preview", "No enabled GUI criteria.")
-            return
-        self.ezsf_enabled.set(True)
-        self._set_ezsf_content(text)
-        self.status_var.set("Loaded GUI criteria preview into .ezsf editor")
+            self.ezsf_text.delete("1.0", tk.END)
+            self.ezsf_text.insert("1.0", text)
+            self.ezsf_text.edit_modified(False)
+        finally:
+            self._syncing = False
+        self._debounced_ezsf_to_gui()
 
     def _load_ruined_portal_example(self) -> None:
         path = examples_dir() / "ruined_portal_speedrun.ezsf"
@@ -863,26 +997,18 @@ class SeedFinderApp(tk.Tk):
             with open(path, encoding="utf-8") as f:
                 content = f.read()
             self._set_ezsf_content(content)
-            self.ezsf_enabled.set(True)
-            try:
-                criteria, features, doc = parse_ezsf_to_criteria(content)
-                if doc.version:
-                    self.version_var.set(doc.version)
-                apply_criteria_to_gui(self, criteria, features)
-            except Exception:
-                pass
-        self.gui_criteria_enabled.set(True)
-        self.status_var.set("Loaded ruined portal speedrun preset")
+            self.status_var.set("Loaded ruined portal speedrun preset")
+        else:
+            messagebox.showwarning("Example", "ruined_portal_speedrun.ezsf not found.")
 
     def _load_speedrun_example(self) -> None:
         path = examples_dir() / "speedrun.ezsf"
         if path.is_file():
             with open(path, encoding="utf-8") as f:
-                self._set_ezsf_content(f.read())
+                content = f.read()
         else:
-            self._set_ezsf_content(self._speedrun_ezsf_text())
-        self.version_var.set(SPEEDRUN_VERSION)
-        self.ezsf_enabled.set(True)
+            content = self._speedrun_ezsf_text()
+        self._set_ezsf_content(content)
         self.status_var.set("Loaded 1.16.1 speedrun preset")
 
     def _speedrun_ezsf_text(self) -> str:
@@ -908,20 +1034,15 @@ dimension nether {
 }
 """
 
-    def _load_example(self, initial: bool = False) -> None:
-        example = """# Optional extra .ezsf rules (merged with GUI tabs when enabled)
-# version 1.16.1
-# threads 8
-# max_results 5
+    def _load_example(self) -> None:
+        example = """# Example .ezsf criteria — edit here or use the GUI tabs
+version 26.2
+max_results 5
+threads 8
 """
-        if initial or messagebox.askyesno("Load Example", "Replace current .ezsf text with example?"):
+        if messagebox.askyesno("Load Example", "Replace current .ezsf text with example?"):
             self._set_ezsf_content(example)
-
-    def _set_ezsf_content(self, text: str) -> None:
-        self.ezsf_text.configure(state="normal")
-        self.ezsf_text.delete("1.0", tk.END)
-        self.ezsf_text.insert("1.0", text)
-        self._toggle_ezsf_editor()
+            self.status_var.set("Loaded example .ezsf")
 
     def _load_ezsf(self) -> None:
         path = filedialog.askopenfilename(
@@ -931,15 +1052,6 @@ dimension nether {
             with open(path, encoding="utf-8") as f:
                 content = f.read()
             self._set_ezsf_content(content)
-            self.ezsf_enabled.set(True)
-            try:
-                criteria, features, doc = parse_ezsf_to_criteria(content)
-                if doc.version:
-                    self.version_var.set(doc.version)
-                apply_criteria_to_gui(self, criteria, features)
-                self.gui_criteria_enabled.set(True)
-            except Exception as exc:
-                messagebox.showwarning("Import", f"Loaded file but GUI import failed: {exc}")
             self.status_var.set(f"Loaded {os.path.basename(path)}")
 
     def _save_ezsf(self) -> None:
@@ -949,17 +1061,17 @@ dimension nether {
         )
         if path:
             with open(path, "w", encoding="utf-8") as f:
-                f.write(self._merged_ezsf_text())
+                f.write(self._current_ezsf_text())
             self.status_var.set(f"Saved {os.path.basename(path)}")
 
     def _build_config(self) -> SearchConfig:
-        merged_ezsf = self._merged_ezsf_text()
+        ezsf_text = self._current_ezsf_text()
         gui_filters: dict = {
             "version": self.version_var.get(),
             "stronghold_under_spawn": self.stronghold_under.get() or self.sh_under_spawn.get(),
             "stronghold_full": self.stronghold_full.get() or self.sh_full.get(),
-            "ezsf_enabled": bool(merged_ezsf.strip()),
-            "ezsf_text": merged_ezsf,
+            "ezsf_enabled": bool(ezsf_text),
+            "ezsf_text": ezsf_text,
         }
         for key, var in self.dist_vars.items():
             gui_filters[f"{key}_enabled"] = self.dist_enabled[key].get()
